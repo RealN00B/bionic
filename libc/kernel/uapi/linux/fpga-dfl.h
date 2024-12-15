@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI_LINUX_FPGA_DFL_H
 #define _UAPI_LINUX_FPGA_DFL_H
 #include <linux/types.h>
@@ -63,6 +51,15 @@ struct dfl_fpga_port_dma_unmap {
   __u64 iova;
 };
 #define DFL_FPGA_PORT_DMA_UNMAP _IO(DFL_FPGA_MAGIC, DFL_PORT_BASE + 4)
+struct dfl_fpga_irq_set {
+  __u32 start;
+  __u32 count;
+  __s32 evtfds[];
+};
+#define DFL_FPGA_PORT_ERR_GET_IRQ_NUM _IOR(DFL_FPGA_MAGIC, DFL_PORT_BASE + 5, __u32)
+#define DFL_FPGA_PORT_ERR_SET_IRQ _IOW(DFL_FPGA_MAGIC, DFL_PORT_BASE + 6, struct dfl_fpga_irq_set)
+#define DFL_FPGA_PORT_UINT_GET_IRQ_NUM _IOR(DFL_FPGA_MAGIC, DFL_PORT_BASE + 7, __u32)
+#define DFL_FPGA_PORT_UINT_SET_IRQ _IOW(DFL_FPGA_MAGIC, DFL_PORT_BASE + 8, struct dfl_fpga_irq_set)
 struct dfl_fpga_fme_port_pr {
   __u32 argsz;
   __u32 flags;
@@ -73,4 +70,6 @@ struct dfl_fpga_fme_port_pr {
 #define DFL_FPGA_FME_PORT_PR _IO(DFL_FPGA_MAGIC, DFL_FME_BASE + 0)
 #define DFL_FPGA_FME_PORT_RELEASE _IOW(DFL_FPGA_MAGIC, DFL_FME_BASE + 1, int)
 #define DFL_FPGA_FME_PORT_ASSIGN _IOW(DFL_FPGA_MAGIC, DFL_FME_BASE + 2, int)
+#define DFL_FPGA_FME_ERR_GET_IRQ_NUM _IOR(DFL_FPGA_MAGIC, DFL_FME_BASE + 3, __u32)
+#define DFL_FPGA_FME_ERR_SET_IRQ _IOW(DFL_FPGA_MAGIC, DFL_FME_BASE + 4, struct dfl_fpga_irq_set)
 #endif

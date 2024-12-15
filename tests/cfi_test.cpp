@@ -15,10 +15,12 @@
  */
 
 #include <dlfcn.h>
-#include <gtest/gtest.h>
 #include <sys/stat.h>
 
-#include "BionicDeathTest.h"
+#include <vector>
+
+#include <gtest/gtest.h>
+
 #include "gtest_globals.h"
 #include "utils.h"
 
@@ -33,9 +35,44 @@ void __cfi_slowpath_diag(uint64_t CallSiteTypeId, void* Ptr, void* DiagData);
 size_t __cfi_shadow_size();
 }
 
+// Disables debuggerd stack traces to speed up death tests, make them less
+// noisy in logcat, and avoid expected deaths from showing up in stability
+// metrics.
+// We don't use the usual libbase class because (a) we don't care about most
+// of the signals it blocks but (b) we do need to block SIGILL, which normal
+// death tests shouldn't ever hit. (It's possible that a design where a
+// deathtest always declares its expected signals up front is a better one,
+// and maybe that's an interesting future direction for libbase.)
+//
+// We include SIGSEGV because there's a test that passes heap addresses to
+// __cfi_slowpath and we only map the executable code shadow as readable.
+// We don't always get SIGSEGV there though: if the heap allocation happens
+// to be close enough to an executable mapping that its shadow is in the
+// same page as the executable shadow, we'll get SIGILL/SIGTRAP.
+class cfi_test_DeathTest : public testing::Test {
+ protected:
+  void SetUp() override {
+    struct sigaction64 action = {.sa_handler = SIG_DFL};
+    sigaction64(SIGILL, &action, &previous_sigill_);
+    sigaction64(SIGSEGV, &action, &previous_sigsegv_);
+    sigaction64(SIGTRAP, &action, &previous_sigtrap_);
+  }
+
+  void TearDown() override {
+    sigaction64(SIGTRAP, &previous_sigtrap_, nullptr);
+    sigaction64(SIGSEGV, &previous_sigsegv_, nullptr);
+    sigaction64(SIGILL, &previous_sigill_, nullptr);
+  }
+
+ private:
+  struct sigaction64 previous_sigill_;
+  struct sigaction64 previous_sigsegv_;
+  struct sigaction64 previous_sigtrap_;
+};
+
 static void f() {}
 
-TEST(cfi_test, basic) {
+TEST_F(cfi_test_DeathTest, basic) {
 #if defined(__BIONIC__)
   void* handle;
   handle = dlopen("libcfi-test.so", RTLD_NOW | RTLD_LOCAL);
@@ -85,14 +122,6 @@ TEST(cfi_test, basic) {
   EXPECT_EQ(get_global_address(), get_last_address());
   EXPECT_EQ(c, get_count());
 
-  // CFI check for a stack address. This is always invalid and gets the process killed.
-  EXPECT_DEATH(__cfi_slowpath(45, reinterpret_cast<void*>(&c)), "");
-
-  // CFI check for a heap address. This is always invalid and gets the process killed.
-  void* p = malloc(4096);
-  EXPECT_DEATH(__cfi_slowpath(46, p), "");
-  free(p);
-
   // Check all the addresses.
   const size_t bss_size = 1024 * 1024;
   static_assert(bss_size >= kLibraryAlignment * 2, "test range not big enough");
@@ -114,10 +143,6 @@ TEST(cfi_test, basic) {
 
   dlclose(handle);
   dlclose(handle2);
-
-  // CFI check for a function inside the unloaded DSO. This is always invalid and gets the process
-  // killed.
-  EXPECT_DEATH(__cfi_slowpath(45, reinterpret_cast<void*>(code_ptr)), "");
 #endif
 }
 
@@ -135,8 +160,7 @@ TEST(cfi_test, invalid) {
 // cfi_test_helper exports __cfi_check, which triggers CFI initialization at startup.
 TEST(cfi_test, early_init) {
 #if defined(__BIONIC__)
-  std::string helper = GetTestlibRoot() + "/cfi_test_helper/cfi_test_helper";
-  chmod(helper.c_str(), 0755); // TODO: "x" lost in CTS, b/34945607
+  std::string helper = GetTestLibRoot() + "/cfi_test_helper";
   ExecTestHelper eth;
   eth.SetArgs({ helper.c_str(), nullptr });
   eth.Run([&]() { execve(helper.c_str(), eth.GetArgs(), eth.GetEnv()); }, 0, nullptr);
@@ -147,8 +171,7 @@ TEST(cfi_test, early_init) {
 // at startup.
 TEST(cfi_test, early_init2) {
 #if defined(__BIONIC__)
-  std::string helper = GetTestlibRoot() + "/cfi_test_helper2/cfi_test_helper2";
-  chmod(helper.c_str(), 0755); // TODO: "x" lost in CTS, b/34945607
+  std::string helper = GetTestLibRoot() + "/cfi_test_helper2";
   ExecTestHelper eth;
   eth.SetArgs({ helper.c_str(), nullptr });
   eth.Run([&]() { execve(helper.c_str(), eth.GetArgs(), eth.GetEnv()); }, 0, nullptr);

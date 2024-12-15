@@ -1,6 +1,16 @@
 // ==============================================================
 // libc_malloc_hooks.so
 // ==============================================================
+package {
+    default_team: "trendy_team_native_tools_libraries",
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "bionic_libc_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-BSD
+    default_applicable_licenses: ["bionic_libc_license"],
+}
+
 cc_library {
     name: "libc_malloc_hooks",
 
@@ -50,6 +60,11 @@ cc_test {
     name: "malloc_hooks_system_tests",
     isolated: true,
 
+    // The clang-analyzer-unix.Malloc and other warnings in these
+    // unit tests are either false positive or in
+    // negative tests that can be ignored.
+    tidy: false,
+
     srcs: [
         "tests/malloc_hooks_tests.cpp",
     ],
@@ -61,7 +76,7 @@ cc_test {
     local_include_dirs: ["tests"],
     include_dirs: [
         "bionic/libc",
-        "bionic"
+        "bionic",
     ],
     header_libs: [
         "bionic_libc_platform_headers",
@@ -70,6 +85,7 @@ cc_test {
     cflags: [
         "-Wall",
         "-Werror",
+        "-O1", // FIXME: http://b/169206016 - issues with aligned_alloc and -O2
     ],
     test_suites: ["general-tests"],
 }

@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI__LINUX_OPENVSWITCH_H
 #define _UAPI__LINUX_OPENVSWITCH_H 1
 #include <linux/types.h>
@@ -42,6 +30,9 @@ enum ovs_datapath_attr {
   OVS_DP_ATTR_MEGAFLOW_STATS,
   OVS_DP_ATTR_USER_FEATURES,
   OVS_DP_ATTR_PAD,
+  OVS_DP_ATTR_MASKS_CACHE_SIZE,
+  OVS_DP_ATTR_PER_CPU_PIDS,
+  OVS_DP_ATTR_IFINDEX,
   __OVS_DP_ATTR_MAX
 };
 #define OVS_DP_ATTR_MAX (__OVS_DP_ATTR_MAX - 1)
@@ -55,8 +46,8 @@ struct ovs_dp_megaflow_stats {
   __u64 n_mask_hit;
   __u32 n_masks;
   __u32 pad0;
+  __u64 n_cache_hit;
   __u64 pad1;
-  __u64 pad2;
 };
 struct ovs_vport_stats {
   __u64 rx_packets;
@@ -71,6 +62,7 @@ struct ovs_vport_stats {
 #define OVS_DP_F_UNALIGNED (1 << 0)
 #define OVS_DP_F_VPORT_PIDS (1 << 1)
 #define OVS_DP_F_TC_RECIRC_SHARING (1 << 2)
+#define OVS_DP_F_DISPATCH_UPCALL_PER_CPU (1 << 3)
 #define OVSP_LOCAL ((__u32) 0)
 #define OVS_PACKET_FAMILY "ovs_packet"
 #define OVS_PACKET_VERSION 0x1
@@ -92,6 +84,7 @@ enum ovs_packet_attr {
   OVS_PACKET_ATTR_PROBE,
   OVS_PACKET_ATTR_MRU,
   OVS_PACKET_ATTR_LEN,
+  OVS_PACKET_ATTR_HASH,
   __OVS_PACKET_ATTR_MAX
 };
 #define OVS_PACKET_ATTR_MAX (__OVS_PACKET_ATTR_MAX - 1)
@@ -126,9 +119,16 @@ enum ovs_vport_attr {
   OVS_VPORT_ATTR_PAD,
   OVS_VPORT_ATTR_IFINDEX,
   OVS_VPORT_ATTR_NETNSID,
+  OVS_VPORT_ATTR_UPCALL_STATS,
   __OVS_VPORT_ATTR_MAX
 };
 #define OVS_VPORT_ATTR_MAX (__OVS_VPORT_ATTR_MAX - 1)
+enum ovs_vport_upcall_attr {
+  OVS_VPORT_UPCALL_ATTR_SUCCESS,
+  OVS_VPORT_UPCALL_ATTR_FAIL,
+  __OVS_VPORT_UPCALL_ATTR_MAX
+};
+#define OVS_VPORT_UPCALL_ATTR_MAX (__OVS_VPORT_UPCALL_ATTR_MAX - 1)
 enum {
   OVS_VXLAN_EXT_UNSPEC,
   OVS_VXLAN_EXT_GBP,
@@ -186,6 +186,10 @@ enum ovs_key_attr {
   OVS_KEY_ATTR_CT_ORIG_TUPLE_IPV4,
   OVS_KEY_ATTR_CT_ORIG_TUPLE_IPV6,
   OVS_KEY_ATTR_NSH,
+  OVS_KEY_ATTR_PACKET_TYPE,
+  OVS_KEY_ATTR_ND_EXTENSIONS,
+  OVS_KEY_ATTR_TUNNEL_INFO,
+  OVS_KEY_ATTR_IPV6_EXTHDRS,
   __OVS_KEY_ATTR_MAX
 };
 #define OVS_KEY_ATTR_MAX (__OVS_KEY_ATTR_MAX - 1)
@@ -240,6 +244,9 @@ struct ovs_key_ipv6 {
   __u8 ipv6_tclass;
   __u8 ipv6_hlimit;
   __u8 ipv6_frag;
+};
+struct ovs_key_ipv6_exthdrs {
+  __u16 hdrs;
 };
 struct ovs_key_tcp {
   __be16 tcp_src;
@@ -365,12 +372,19 @@ struct ovs_action_push_mpls {
   __be32 mpls_lse;
   __be16 mpls_ethertype;
 };
+struct ovs_action_add_mpls {
+  __be32 mpls_lse;
+  __be16 mpls_ethertype;
+  __u16 tun_flags;
+};
+#define OVS_MPLS_L3_TUNNEL_FLAG_MASK (1 << 0)
 struct ovs_action_push_vlan {
   __be16 vlan_tpid;
   __be16 vlan_tci;
 };
 enum ovs_hash_alg {
   OVS_HASH_ALG_L4,
+  OVS_HASH_ALG_SYM_L4,
 };
 struct ovs_action_hash {
   __u32 hash_alg;
@@ -438,6 +452,9 @@ enum ovs_action_attr {
   OVS_ACTION_ATTR_METER,
   OVS_ACTION_ATTR_CLONE,
   OVS_ACTION_ATTR_CHECK_PKT_LEN,
+  OVS_ACTION_ATTR_ADD_MPLS,
+  OVS_ACTION_ATTR_DEC_TTL,
+  OVS_ACTION_ATTR_DROP,
   __OVS_ACTION_ATTR_MAX,
 };
 #define OVS_ACTION_ATTR_MAX (__OVS_ACTION_ATTR_MAX - 1)
@@ -501,4 +518,10 @@ struct ovs_zone_limit {
   __u32 limit;
   __u32 count;
 };
+enum ovs_dec_ttl_attr {
+  OVS_DEC_TTL_ATTR_UNSPEC,
+  OVS_DEC_TTL_ATTR_ACTION,
+  __OVS_DEC_TTL_ATTR_MAX
+};
+#define OVS_DEC_TTL_ATTR_MAX (__OVS_DEC_TTL_ATTR_MAX - 1)
 #endif

@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2008 David Schultz <das@FreeBSD.ORG>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_cproj.c 342563 2018-12-28 01:34:08Z jhibbits $");
 
 #include <complex.h>
 #include <float.h>

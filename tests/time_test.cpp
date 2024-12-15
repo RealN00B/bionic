@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include <pthread.h>
 #include <signal.h>
+#include <sys/cdefs.h>
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -27,11 +28,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <thread>
 
 #include "SignalUtils.h"
+#include "android-base/file.h"
+#include "android-base/strings.h"
 #include "utils.h"
-
-#include "private/bionic_constants.h"
 
 using namespace std::chrono_literals;
 
@@ -85,9 +87,19 @@ TEST(time, gmtime_r) {
   ASSERT_EQ(1970, broken_down->tm_year + 1900);
 }
 
+TEST(time, mktime_TZ_as_UTC_and_offset) {
+  struct tm tm = {.tm_year = 70, .tm_mon = 0, .tm_mday = 1};
+
+  // This TZ value is not a valid Olson ID and is not present in tzdata file,
+  // but is a valid TZ string according to POSIX standard.
+  setenv("TZ", "UTC+08:00:00", 1);
+  tzset();
+  ASSERT_EQ(static_cast<time_t>(8 * 60 * 60), mktime(&tm));
+}
+
 static void* gmtime_no_stack_overflow_14313703_fn(void*) {
   const char* original_tz = getenv("TZ");
-  // Ensure we'll actually have to enter tzload by using a time zone that doesn't exist.
+  // Ensure we'll actually have to enter tzload by using a timezone that doesn't exist.
   setenv("TZ", "gmtime_stack_overflow_14313703", 1);
   tzset();
   if (original_tz != nullptr) {
@@ -135,16 +147,12 @@ TEST(time, mktime_empty_TZ) {
 }
 
 TEST(time, mktime_10310929) {
-  struct tm t;
-  memset(&t, 0, sizeof(tm));
-  t.tm_year = 200;
-  t.tm_mon = 2;
-  t.tm_mday = 10;
+  struct tm tm = {.tm_year = 2100 - 1900, .tm_mon = 2, .tm_mday = 10};
 
 #if !defined(__LP64__)
-  // 32-bit bionic stupidly had a signed 32-bit time_t.
-  ASSERT_EQ(-1, mktime(&t));
-  ASSERT_EQ(EOVERFLOW, errno);
+  // 32-bit bionic has a signed 32-bit time_t.
+  ASSERT_EQ(-1, mktime(&tm));
+  ASSERT_ERRNO(EOVERFLOW);
 #else
   // Everyone else should be using a signed 64-bit time_t.
   ASSERT_GE(sizeof(time_t) * 8, 64U);
@@ -152,18 +160,19 @@ TEST(time, mktime_10310929) {
   setenv("TZ", "America/Los_Angeles", 1);
   tzset();
   errno = 0;
-  ASSERT_EQ(static_cast<time_t>(4108348800U), mktime(&t));
-  ASSERT_EQ(0, errno);
 
-  setenv("TZ", "UTC", 1);
-  tzset();
-  errno = 0;
-  ASSERT_EQ(static_cast<time_t>(4108320000U), mktime(&t));
-  ASSERT_EQ(0, errno);
+  // On the date/time specified by tm America/Los_Angeles
+  // follows DST. But tm_isdst is set to 0, which forces
+  // mktime to interpret that time as local standard, hence offset
+  // is 8 hours, not 7.
+  ASSERT_EQ(static_cast<time_t>(4108348800U), mktime(&tm));
+  ASSERT_ERRNO(0);
 #endif
 }
 
 TEST(time, mktime_EOVERFLOW) {
+  setenv("TZ", "UTC", 1);
+
   struct tm t;
   memset(&t, 0, sizeof(tm));
 
@@ -175,14 +184,65 @@ TEST(time, mktime_EOVERFLOW) {
 
   errno = 0;
   ASSERT_NE(static_cast<time_t>(-1), mktime(&t));
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
 
-  // This will overflow for LP32 or LP64.
+  // This will overflow for LP32.
   t.tm_year = INT_MAX;
 
   errno = 0;
+#if !defined(__LP64__)
   ASSERT_EQ(static_cast<time_t>(-1), mktime(&t));
-  ASSERT_EQ(EOVERFLOW, errno);
+  ASSERT_ERRNO(EOVERFLOW);
+#else
+  ASSERT_EQ(static_cast<time_t>(67768036166016000U), mktime(&t));
+  ASSERT_ERRNO(0);
+#endif
+
+  // This will overflow for LP32 or LP64.
+  // tm_year is int, this t struct points to INT_MAX + 1 no matter what TZ is.
+  t.tm_year = INT_MAX;
+  t.tm_mon = 11;
+  t.tm_mday = 45;
+
+  errno = 0;
+  ASSERT_EQ(static_cast<time_t>(-1), mktime(&t));
+  ASSERT_ERRNO(EOVERFLOW);
+}
+
+TEST(time, mktime_invalid_tm_TZ_combination) {
+  setenv("TZ", "UTC", 1);
+
+  struct tm t;
+  memset(&t, 0, sizeof(tm));
+  t.tm_year = 2022 - 1900;
+  t.tm_mon = 11;
+  t.tm_mday = 31;
+  // UTC does not observe DST
+  t.tm_isdst = 1;
+
+  errno = 0;
+
+  EXPECT_EQ(static_cast<time_t>(-1), mktime(&t));
+  // mktime sets errno to EOVERFLOW if result is unrepresentable.
+  EXPECT_ERRNO(EOVERFLOW);
+}
+
+// Transitions in the tzdata file are generated up to the year 2100. Testing
+// that dates beyond that are handled properly too.
+TEST(time, mktime_after_2100) {
+  struct tm tm = {.tm_year = 2150 - 1900, .tm_mon = 2, .tm_mday = 10, .tm_isdst = -1};
+
+#if !defined(__LP64__)
+  // 32-bit bionic has a signed 32-bit time_t.
+  ASSERT_EQ(-1, mktime(&tm));
+  ASSERT_ERRNO(EOVERFLOW);
+#else
+  setenv("TZ", "Europe/London", 1);
+  tzset();
+  errno = 0;
+  ASSERT_EQ(static_cast<time_t>(5686156800U), mktime(&tm));
+  ASSERT_ERRNO(0);
+#endif
 }
 
 TEST(time, strftime) {
@@ -207,7 +267,25 @@ TEST(time, strftime) {
   EXPECT_STREQ("Sun Mar 10 00:00:00 2100", buf);
 }
 
-TEST(time, strftime_null_tm_zone) {
+TEST(time, strftime_second_before_epoch) {
+  setenv("TZ", "UTC", 1);
+
+  struct tm t;
+  memset(&t, 0, sizeof(tm));
+  t.tm_year = 1969 - 1900;
+  t.tm_mon = 11;
+  t.tm_mday = 31;
+  t.tm_hour = 23;
+  t.tm_min = 59;
+  t.tm_sec = 59;
+
+  char buf[64];
+
+  EXPECT_EQ(2U, strftime(buf, sizeof(buf), "%s", &t));
+  EXPECT_STREQ("-1", buf);
+}
+
+TEST(time, strftime_Z_null_tm_zone) {
   // Netflix on Nexus Player wouldn't start (http://b/25170306).
   struct tm t;
   memset(&t, 0, sizeof(tm));
@@ -243,6 +321,86 @@ TEST(time, strftime_null_tm_zone) {
   EXPECT_EQ(2U, strftime(buf, sizeof(buf), "<%Z>", &t));
   EXPECT_STREQ("<>", buf);
 #endif
+}
+
+// According to C language specification the only tm struct field needed to
+// find out replacement for %z and %Z in strftime is tm_isdst. Which is
+// wrong, as timezones change their standard offset and even DST savings.
+// tzcode deviates from C language specification and requires tm struct either
+// to be output of localtime-like functions or to be modified by mktime call
+// before passing to strftime. See tz mailing discussion for more details
+// https://mm.icann.org/pipermail/tz/2022-July/031674.html
+// But we are testing case when tm.tm_zone is null, which means that tm struct
+// is not coming from localtime and is neither modified by mktime. That's why
+// we are comparing against +0000, even though America/Los_Angeles never
+// observes it.
+TEST(time, strftime_z_null_tm_zone) {
+  char str[64];
+  struct tm tm = {.tm_year = 109, .tm_mon = 4, .tm_mday = 2, .tm_isdst = 0};
+
+  setenv("TZ", "America/Los_Angeles", 1);
+  tzset();
+
+  tm.tm_zone = NULL;
+
+  size_t result = strftime(str, sizeof(str), "%z", &tm);
+
+  EXPECT_EQ(5U, result);
+  EXPECT_STREQ("+0000", str);
+
+  tm.tm_isdst = 1;
+
+  result = strftime(str, sizeof(str), "%z", &tm);
+
+  EXPECT_EQ(5U, result);
+  EXPECT_STREQ("+0000", str);
+
+  setenv("TZ", "UTC", 1);
+  tzset();
+
+  tm.tm_isdst = 0;
+
+  result = strftime(str, sizeof(str), "%z", &tm);
+
+  EXPECT_EQ(5U, result);
+  EXPECT_STREQ("+0000", str);
+
+  tm.tm_isdst = 1;
+
+  result = strftime(str, sizeof(str), "%z", &tm);
+
+  EXPECT_EQ(5U, result);
+  EXPECT_STREQ("+0000", str);
+}
+
+TEST(time, strftime_z_Europe_Lisbon) {
+  char str[64];
+  // During 1992-1996 Europe/Lisbon standard offset was 1 hour.
+  // tm_isdst is not set as it will be overridden by mktime call anyway.
+  struct tm tm = {.tm_year = 1996 - 1900, .tm_mon = 2, .tm_mday = 13};
+
+  setenv("TZ", "Europe/Lisbon", 1);
+  tzset();
+
+  // tzcode's strftime implementation for %z relies on prior mktime call.
+  // At the moment of writing %z value is taken from tm_gmtoff. So without
+  // mktime call %z is replaced with +0000.
+  // See https://mm.icann.org/pipermail/tz/2022-July/031674.html
+  mktime(&tm);
+
+  size_t result = strftime(str, sizeof(str), "%z", &tm);
+
+  EXPECT_EQ(5U, result);
+  EXPECT_STREQ("+0100", str);
+
+  // Now standard offset is 0.
+  tm = {.tm_year = 2022 - 1900, .tm_mon = 2, .tm_mday = 13};
+
+  mktime(&tm);
+  result = strftime(str, sizeof(str), "%z", &tm);
+
+  EXPECT_EQ(5U, result);
+  EXPECT_STREQ("+0000", str);
 }
 
 TEST(time, strftime_l) {
@@ -284,6 +442,7 @@ TEST(time, strptime) {
 }
 
 TEST(time, strptime_l) {
+#if !defined(ANDROID_HOST_MUSL)
   setenv("TZ", "UTC", 1);
 
   struct tm t;
@@ -298,6 +457,9 @@ TEST(time, strptime_l) {
   strptime_l("09:41:53", "%T", &t, LC_GLOBAL_LOCALE);
   strftime_l(buf, sizeof(buf), "%H:%M:%S", &t, LC_GLOBAL_LOCALE);
   EXPECT_STREQ("09:41:53", buf);
+#else
+  GTEST_SKIP() << "musl doesn't support strptime_l";
+#endif
 }
 
 TEST(time, strptime_F) {
@@ -363,6 +525,105 @@ TEST(time, strptime_V_G_g) {
   EXPECT_TRUE(memcmp(&tm, &zero, sizeof(tm)) == 0);
 }
 
+TEST(time, strptime_Z) {
+#if defined(__BIONIC__)
+  // glibc doesn't handle %Z at all.
+  // The BSDs only handle hard-coded "GMT" and "UTC", plus whatever two strings
+  // are in the global `tzname` (which correspond to the current $TZ).
+  struct tm tm;
+  setenv("TZ", "Europe/Berlin", 1);
+
+  // "GMT" always works.
+  tm = {};
+  ASSERT_EQ('\0', *strptime("GMT", "%Z", &tm));
+  EXPECT_STREQ("GMT", tm.tm_zone);
+  EXPECT_EQ(0, tm.tm_isdst);
+  EXPECT_EQ(0, tm.tm_gmtoff);
+
+  // As does "UTC".
+  tm = {};
+  ASSERT_EQ('\0', *strptime("UTC", "%Z", &tm));
+  EXPECT_STREQ("UTC", tm.tm_zone);
+  EXPECT_EQ(0, tm.tm_isdst);
+  EXPECT_EQ(0, tm.tm_gmtoff);
+
+  // Europe/Berlin is known as "CET" when there's no DST.
+  tm = {};
+  ASSERT_EQ('\0', *strptime("CET", "%Z", &tm));
+  EXPECT_STREQ("CET", tm.tm_zone);
+  EXPECT_EQ(0, tm.tm_isdst);
+  EXPECT_EQ(3600, tm.tm_gmtoff);
+
+  // Europe/Berlin is known as "CEST" when there's no DST.
+  tm = {};
+  ASSERT_EQ('\0', *strptime("CEST", "%Z", &tm));
+  EXPECT_STREQ("CEST", tm.tm_zone);
+  EXPECT_EQ(1, tm.tm_isdst);
+  EXPECT_EQ(3600, tm.tm_gmtoff);
+
+  // And as long as we're in Europe/Berlin, those are the only timezone
+  // abbreviations that are recognized.
+  tm = {};
+  ASSERT_TRUE(strptime("PDT", "%Z", &tm) == nullptr);
+#endif
+}
+
+TEST(time, strptime_z) {
+  struct tm tm;
+  setenv("TZ", "Europe/Berlin", 1);
+
+  // "UT" is what RFC822 called UTC.
+  tm = {};
+  ASSERT_EQ('\0', *strptime("UT", "%z", &tm));
+  EXPECT_STREQ("UTC", tm.tm_zone);
+  EXPECT_EQ(0, tm.tm_isdst);
+  EXPECT_EQ(0, tm.tm_gmtoff);
+  // "GMT" is RFC822's other name for UTC.
+  tm = {};
+  ASSERT_EQ('\0', *strptime("GMT", "%z", &tm));
+  EXPECT_STREQ("UTC", tm.tm_zone);
+  EXPECT_EQ(0, tm.tm_isdst);
+  EXPECT_EQ(0, tm.tm_gmtoff);
+
+  // "Z" ("Zulu") is a synonym for UTC.
+  tm = {};
+  ASSERT_EQ('\0', *strptime("Z", "%z", &tm));
+  EXPECT_STREQ("UTC", tm.tm_zone);
+  EXPECT_EQ(0, tm.tm_isdst);
+  EXPECT_EQ(0, tm.tm_gmtoff);
+
+  // "PST"/"PDT" and the other common US zone abbreviations are all supported.
+  tm = {};
+  ASSERT_EQ('\0', *strptime("PST", "%z", &tm));
+  EXPECT_STREQ("PST", tm.tm_zone);
+  EXPECT_EQ(0, tm.tm_isdst);
+  EXPECT_EQ(-28800, tm.tm_gmtoff);
+  tm = {};
+  ASSERT_EQ('\0', *strptime("PDT", "%z", &tm));
+  EXPECT_STREQ("PDT", tm.tm_zone);
+  EXPECT_EQ(1, tm.tm_isdst);
+  EXPECT_EQ(-25200, tm.tm_gmtoff);
+
+  // +-hh
+  tm = {};
+  ASSERT_EQ('\0', *strptime("+01", "%z", &tm));
+  EXPECT_EQ(3600, tm.tm_gmtoff);
+  EXPECT_TRUE(tm.tm_zone == nullptr);
+  EXPECT_EQ(0, tm.tm_isdst);
+  // +-hhmm
+  tm = {};
+  ASSERT_EQ('\0', *strptime("+0130", "%z", &tm));
+  EXPECT_EQ(5400, tm.tm_gmtoff);
+  EXPECT_TRUE(tm.tm_zone == nullptr);
+  EXPECT_EQ(0, tm.tm_isdst);
+  // +-hh:mm
+  tm = {};
+  ASSERT_EQ('\0', *strptime("+01:30", "%z", &tm));
+  EXPECT_EQ(5400, tm.tm_gmtoff);
+  EXPECT_TRUE(tm.tm_zone == nullptr);
+  EXPECT_EQ(0, tm.tm_isdst);
+}
+
 void SetTime(timer_t t, time_t value_s, time_t value_ns, time_t interval_s, time_t interval_ns) {
   itimerspec ts;
   ts.it_value.tv_sec = value_s;
@@ -372,11 +633,11 @@ void SetTime(timer_t t, time_t value_s, time_t value_ns, time_t interval_s, time
   ASSERT_EQ(0, timer_settime(t, 0, &ts, nullptr));
 }
 
-static void NoOpNotifyFunction(sigval_t) {
+static void NoOpNotifyFunction(sigval) {
 }
 
 TEST(time, timer_create) {
-  sigevent_t se;
+  sigevent se;
   memset(&se, 0, sizeof(se));
   se.sigev_notify = SIGEV_THREAD;
   se.sigev_notify_function = NoOpNotifyFunction;
@@ -389,7 +650,7 @@ TEST(time, timer_create) {
   if (pid == 0) {
     // Timers are not inherited by the child.
     ASSERT_EQ(-1, timer_delete(timer_id));
-    ASSERT_EQ(EINVAL, errno);
+    ASSERT_ERRNO(EINVAL);
     _exit(0);
   }
 
@@ -405,7 +666,7 @@ static void timer_create_SIGEV_SIGNAL_signal_handler(int signal_number) {
 }
 
 TEST(time, timer_create_SIGEV_SIGNAL) {
-  sigevent_t se;
+  sigevent se;
   memset(&se, 0, sizeof(se));
   se.sigev_notify = SIGEV_SIGNAL;
   se.sigev_signo = SIGUSR1;
@@ -433,7 +694,7 @@ struct Counter {
  private:
   std::atomic<int> value;
   timer_t timer_id;
-  sigevent_t se;
+  sigevent se;
   bool timer_valid;
 
   void Create() {
@@ -443,7 +704,7 @@ struct Counter {
   }
 
  public:
-  explicit Counter(void (*fn)(sigval_t)) : value(0), timer_valid(false) {
+  explicit Counter(void (*fn)(sigval)) : value(0), timer_valid(false) {
     memset(&se, 0, sizeof(se));
     se.sigev_notify = SIGEV_THREAD;
     se.sigev_notify_function = fn;
@@ -478,12 +739,12 @@ struct Counter {
     return current_value != value;
   }
 
-  static void CountNotifyFunction(sigval_t value) {
+  static void CountNotifyFunction(sigval value) {
     Counter* cd = reinterpret_cast<Counter*>(value.sival_ptr);
     ++cd->value;
   }
 
-  static void CountAndDisarmNotifyFunction(sigval_t value) {
+  static void CountAndDisarmNotifyFunction(sigval value) {
     Counter* cd = reinterpret_cast<Counter*>(value.sival_ptr);
     ++cd->value;
 
@@ -538,21 +799,41 @@ TEST(time, timer_create_NULL) {
   ASSERT_EQ(1, timer_create_NULL_signal_handler_invocation_count);
 }
 
+static int GetThreadCount() {
+  std::string status;
+  if (android::base::ReadFileToString("/proc/self/status", &status)) {
+    for (const auto& line : android::base::Split(status, "\n")) {
+      int thread_count;
+      if (sscanf(line.c_str(), "Threads: %d", &thread_count) == 1) {
+        return thread_count;
+      }
+    }
+  }
+  return -1;
+}
+
 TEST(time, timer_create_EINVAL) {
-  clockid_t invalid_clock = 16;
+  const clockid_t kInvalidClock = 16;
 
-  // A SIGEV_SIGNAL timer is easy; the kernel does all that.
+  // A SIGEV_SIGNAL timer failure is easy; that's the kernel's problem.
   timer_t timer_id;
-  ASSERT_EQ(-1, timer_create(invalid_clock, nullptr, &timer_id));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_EQ(-1, timer_create(kInvalidClock, nullptr, &timer_id));
+  ASSERT_ERRNO(EINVAL);
 
-  // A SIGEV_THREAD timer is more interesting because we have stuff to clean up.
-  sigevent_t se;
-  memset(&se, 0, sizeof(se));
+  // A SIGEV_THREAD timer failure is more interesting because we have a thread
+  // to clean up (https://issuetracker.google.com/340125671).
+  sigevent se = {};
   se.sigev_notify = SIGEV_THREAD;
   se.sigev_notify_function = NoOpNotifyFunction;
-  ASSERT_EQ(-1, timer_create(invalid_clock, &se, &timer_id));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_EQ(-1, timer_create(kInvalidClock, &se, &timer_id));
+  ASSERT_ERRNO(EINVAL);
+
+  // timer_create() doesn't guarantee that the thread will be dead _before_
+  // it returns because that would require extra synchronization that's
+  // unnecessary in the normal (successful) case. A timeout here means we
+  // leaked a thread.
+  while (GetThreadCount() > 1) {
+  }
 }
 
 TEST(time, timer_create_multiple) {
@@ -618,7 +899,7 @@ struct TimerDeleteData {
   volatile bool complete;
 };
 
-static void TimerDeleteCallback(sigval_t value) {
+static void TimerDeleteCallback(sigval value) {
   TimerDeleteData* tdd = reinterpret_cast<TimerDeleteData*>(value.sival_ptr);
 
   tdd->tid = gettid();
@@ -628,7 +909,7 @@ static void TimerDeleteCallback(sigval_t value) {
 
 TEST(time, timer_delete_from_timer_thread) {
   TimerDeleteData tdd;
-  sigevent_t se;
+  sigevent se;
 
   memset(&se, 0, sizeof(se));
   se.sigev_notify = SIGEV_THREAD;
@@ -655,28 +936,33 @@ TEST(time, timer_delete_from_timer_thread) {
   cur_time = time(NULL);
   while ((kill(tdd.tid, 0) != -1 || errno != ESRCH) && (time(NULL) - cur_time) < 5);
   ASSERT_EQ(-1, kill(tdd.tid, 0));
-  ASSERT_EQ(ESRCH, errno);
+  ASSERT_ERRNO(ESRCH);
 #endif
 }
 
+// Musl doesn't define __NR_clock_gettime on 32-bit architectures.
+#if !defined(__NR_clock_gettime)
+#define __NR_clock_gettime __NR_clock_gettime32
+#endif
+
 TEST(time, clock_gettime) {
   // Try to ensure that our vdso clock_gettime is working.
+  timespec ts0;
   timespec ts1;
-  ASSERT_EQ(0, clock_gettime(CLOCK_MONOTONIC, &ts1));
   timespec ts2;
-  ASSERT_EQ(0, syscall(__NR_clock_gettime, CLOCK_MONOTONIC, &ts2));
+  ASSERT_EQ(0, clock_gettime(CLOCK_MONOTONIC, &ts0));
+  ASSERT_EQ(0, syscall(__NR_clock_gettime, CLOCK_MONOTONIC, &ts1));
+  ASSERT_EQ(0, clock_gettime(CLOCK_MONOTONIC, &ts2));
 
-  // What's the difference between the two?
-  ts2.tv_sec -= ts1.tv_sec;
-  ts2.tv_nsec -= ts1.tv_nsec;
-  if (ts2.tv_nsec < 0) {
-    --ts2.tv_sec;
-    ts2.tv_nsec += NS_PER_S;
+  // Check we have a nice monotonic timestamp sandwich.
+  ASSERT_LE(ts0.tv_sec, ts1.tv_sec);
+  if (ts0.tv_sec == ts1.tv_sec) {
+    ASSERT_LE(ts0.tv_nsec, ts1.tv_nsec);
   }
-
-  // To try to avoid flakiness we'll accept answers within 10,000,000ns (0.01s).
-  ASSERT_EQ(0, ts2.tv_sec);
-  ASSERT_LT(ts2.tv_nsec, 10'000'000);
+  ASSERT_LE(ts1.tv_sec, ts2.tv_sec);
+  if (ts1.tv_sec == ts2.tv_sec) {
+    ASSERT_LE(ts1.tv_nsec, ts2.tv_nsec);
+  }
 }
 
 TEST(time, clock_gettime_CLOCK_REALTIME) {
@@ -708,7 +994,7 @@ TEST(time, clock_gettime_unknown) {
   errno = 0;
   timespec ts;
   ASSERT_EQ(-1, clock_gettime(-1, &ts));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 }
 
 TEST(time, clock_getres_CLOCK_REALTIME) {
@@ -746,17 +1032,25 @@ TEST(time, clock_getres_unknown) {
   errno = 0;
   timespec ts = { -1, -1 };
   ASSERT_EQ(-1, clock_getres(-1, &ts));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
   ASSERT_EQ(-1, ts.tv_nsec);
   ASSERT_EQ(-1, ts.tv_sec);
 }
 
+TEST(time, clock_getres_null_resolution) {
+  ASSERT_EQ(0, clock_getres(CLOCK_REALTIME, nullptr));
+}
+
 TEST(time, clock) {
-  // clock(3) is hard to test, but a 1s sleep should cost less than 5ms.
+  // clock(3) is hard to test, but a 1s sleep should cost less than 10ms on average.
+  static const clock_t N = 5;
+  static const clock_t mean_limit_ms = 10;
   clock_t t0 = clock();
-  sleep(1);
+  for (size_t i = 0; i < N; ++i) {
+    sleep(1);
+  }
   clock_t t1 = clock();
-  ASSERT_LT(t1 - t0, 5 * (CLOCKS_PER_SEC / 1000));
+  ASSERT_LT(t1 - t0, N * mean_limit_ms * (CLOCKS_PER_SEC / 1000));
 }
 
 static pid_t GetInvalidPid() {
@@ -791,14 +1085,14 @@ TEST(time, clock_getcpuclockid_ESRCH) {
     << "commit/?id=e1b6b6ce55a0a25c8aa8af019095253b2133a41a\n"
     << "* https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/"
     << "commit/?id=c80ed088a519da53f27b798a69748eaabc66aadf\n";
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
 }
 
 TEST(time, clock_settime) {
   errno = 0;
   timespec ts;
   ASSERT_EQ(-1, clock_settime(-1, &ts));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 }
 
 TEST(time, clock_nanosleep_EINVAL) {
@@ -834,7 +1128,7 @@ TEST(time, nanosleep_EINVAL) {
   timespec ts = {.tv_sec = -1};
   errno = 0;
   ASSERT_EQ(-1, nanosleep(&ts, nullptr));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 }
 
 TEST(time, bug_31938693) {
@@ -845,7 +1139,7 @@ TEST(time, bug_31938693) {
   // Actual underlying bug (the code change, not the tzdata upgrade that first exposed the bug):
   // http://b/31848040
 
-  // This isn't a great test, because very few time zones were actually affected, and there's
+  // This isn't a great test, because very few timezones were actually affected, and there's
   // no real logic to which ones were affected: it was just a coincidence of the data that came
   // after them in the tzdata file.
 
@@ -886,10 +1180,10 @@ TEST(time, bug_31938693) {
 TEST(time, bug_31339449) {
   // POSIX says localtime acts as if it calls tzset.
   // tzset does two things:
-  //  1. it sets the time zone ctime/localtime/mktime/strftime will use.
+  //  1. it sets the timezone ctime/localtime/mktime/strftime will use.
   //  2. it sets the global `tzname`.
   // POSIX says localtime_r need not set `tzname` (2).
-  // Q: should localtime_r set the time zone (1)?
+  // Q: should localtime_r set the timezone (1)?
   // Upstream tzcode (and glibc) answer "no", everyone else answers "yes".
 
   // Pick a time, any time...
@@ -997,11 +1291,194 @@ TEST(time, strptime_s_nothing) {
 }
 
 TEST(time, timespec_get) {
-#if __BIONIC__
+#if defined(__BIONIC__)
   timespec ts = {};
-  ASSERT_EQ(0, timespec_get(&ts, 123));
   ASSERT_EQ(TIME_UTC, timespec_get(&ts, TIME_UTC));
+  ASSERT_EQ(TIME_MONOTONIC, timespec_get(&ts, TIME_MONOTONIC));
+  ASSERT_EQ(TIME_ACTIVE, timespec_get(&ts, TIME_ACTIVE));
+  ASSERT_EQ(TIME_THREAD_ACTIVE, timespec_get(&ts, TIME_THREAD_ACTIVE));
 #else
   GTEST_SKIP() << "glibc doesn't have timespec_get until 2.21";
+#endif
+}
+
+TEST(time, timespec_get_invalid) {
+#if defined(__BIONIC__)
+  timespec ts = {};
+  ASSERT_EQ(0, timespec_get(&ts, 123));
+#else
+  GTEST_SKIP() << "glibc doesn't have timespec_get until 2.21";
+#endif
+}
+
+TEST(time, timespec_getres) {
+#if defined(__BIONIC__)
+  timespec ts = {};
+  ASSERT_EQ(TIME_UTC, timespec_getres(&ts, TIME_UTC));
+  ASSERT_EQ(1, ts.tv_nsec);
+  ASSERT_EQ(0, ts.tv_sec);
+#else
+  GTEST_SKIP() << "glibc doesn't have timespec_get until 2.21";
+#endif
+}
+
+TEST(time, timespec_getres_invalid) {
+#if defined(__BIONIC__)
+  timespec ts = {};
+  ASSERT_EQ(0, timespec_getres(&ts, 123));
+#else
+  GTEST_SKIP() << "glibc doesn't have timespec_get until 2.21";
+#endif
+}
+
+TEST(time, difftime) {
+  ASSERT_EQ(1.0, difftime(1, 0));
+  ASSERT_EQ(-1.0, difftime(0, 1));
+}
+
+TEST(time, tzfree_null) {
+#if defined(__BIONIC__)
+  tzfree(nullptr);
+#else
+  GTEST_SKIP() << "glibc doesn't have timezone_t";
+#endif
+}
+
+TEST(time, localtime_rz) {
+#if defined(__BIONIC__)
+  setenv("TZ", "America/Los_Angeles", 1);
+  tzset();
+
+  auto AssertTmEq = [](const struct tm& rhs, int hour) {
+    ASSERT_EQ(93, rhs.tm_year);
+    ASSERT_EQ(0, rhs.tm_mon);
+    ASSERT_EQ(1, rhs.tm_mday);
+    ASSERT_EQ(hour, rhs.tm_hour);
+    ASSERT_EQ(0, rhs.tm_min);
+    ASSERT_EQ(0, rhs.tm_sec);
+  };
+
+  const time_t t = 725875200;
+
+  // Spam localtime_r() while we use localtime_rz().
+  std::atomic<bool> done = false;
+  std::thread thread{[&] {
+    while (!done) {
+      struct tm tm {};
+      ASSERT_EQ(&tm, localtime_r(&t, &tm));
+      AssertTmEq(tm, 0);
+    }
+  }};
+
+  struct tm tm;
+
+  timezone_t london{tzalloc("Europe/London")};
+  tm = {};
+  ASSERT_EQ(&tm, localtime_rz(london, &t, &tm));
+  AssertTmEq(tm, 8);
+
+  timezone_t seoul{tzalloc("Asia/Seoul")};
+  tm = {};
+  ASSERT_EQ(&tm, localtime_rz(seoul, &t, &tm));
+  AssertTmEq(tm, 17);
+
+  // Just check that mktime()'s timezone didn't change.
+  tm = {};
+  ASSERT_EQ(&tm, localtime_r(&t, &tm));
+  ASSERT_EQ(0, tm.tm_hour);
+  AssertTmEq(tm, 0);
+
+  done = true;
+  thread.join();
+
+  tzfree(london);
+  tzfree(seoul);
+#else
+  GTEST_SKIP() << "glibc doesn't have timezone_t";
+#endif
+}
+
+TEST(time, mktime_z) {
+#if defined(__BIONIC__)
+  setenv("TZ", "America/Los_Angeles", 1);
+  tzset();
+
+  // Spam mktime() while we use mktime_z().
+  std::atomic<bool> done = false;
+  std::thread thread{[&done] {
+    while (!done) {
+      struct tm tm {
+        .tm_year = 93, .tm_mday = 1
+      };
+      ASSERT_EQ(725875200, mktime(&tm));
+    }
+  }};
+
+  struct tm tm;
+
+  timezone_t london{tzalloc("Europe/London")};
+  tm = {.tm_year = 93, .tm_mday = 1};
+  ASSERT_EQ(725846400, mktime_z(london, &tm));
+
+  timezone_t seoul{tzalloc("Asia/Seoul")};
+  tm = {.tm_year = 93, .tm_mday = 1};
+  ASSERT_EQ(725814000, mktime_z(seoul, &tm));
+
+  // Just check that mktime()'s timezone didn't change.
+  tm = {.tm_year = 93, .tm_mday = 1};
+  ASSERT_EQ(725875200, mktime(&tm));
+
+  done = true;
+  thread.join();
+
+  tzfree(london);
+  tzfree(seoul);
+#else
+  GTEST_SKIP() << "glibc doesn't have timezone_t";
+#endif
+}
+
+TEST(time, tzalloc_nullptr) {
+#if defined(__BIONIC__)
+  // tzalloc(nullptr) returns the system timezone.
+  timezone_t default_tz = tzalloc(nullptr);
+  ASSERT_NE(nullptr, default_tz);
+
+  // Check that mktime_z() with the default timezone matches mktime().
+  // This assumes that the system timezone doesn't change during the test,
+  // but that should be unlikely, and we don't have much choice if we
+  // want to write a test at all.
+  // We unset $TZ before calling mktime() because mktime() honors $TZ.
+  unsetenv("TZ");
+  struct tm tm = {.tm_year = 93, .tm_mday = 1};
+  time_t t = mktime(&tm);
+  ASSERT_EQ(t, mktime_z(default_tz, &tm));
+
+  // Check that changing $TZ doesn't affect the tzalloc() default in
+  // the same way it would the mktime() default.
+  setenv("TZ", "America/Los_Angeles", 1);
+  tzset();
+  ASSERT_EQ(t, mktime_z(default_tz, &tm));
+
+  setenv("TZ", "Europe/London", 1);
+  tzset();
+  ASSERT_EQ(t, mktime_z(default_tz, &tm));
+
+  setenv("TZ", "Asia/Seoul", 1);
+  tzset();
+  ASSERT_EQ(t, mktime_z(default_tz, &tm));
+
+  tzfree(default_tz);
+#else
+  GTEST_SKIP() << "glibc doesn't have timezone_t";
+#endif
+}
+
+TEST(time, tzalloc_unique_ptr) {
+#if defined(__BIONIC__)
+  std::unique_ptr<std::remove_pointer_t<timezone_t>, decltype(&tzfree)> tz{tzalloc("Asia/Seoul"),
+                                                                           tzfree};
+#else
+  GTEST_SKIP() << "glibc doesn't have timezone_t";
 #endif
 }

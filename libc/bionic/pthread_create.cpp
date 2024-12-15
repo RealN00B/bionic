@@ -30,6 +30,7 @@
 
 #include <errno.h>
 #include <string.h>
+#include <sys/auxv.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/random.h>
@@ -39,14 +40,17 @@
 
 #include <async_safe/log.h>
 
+#include "platform/bionic/macros.h"
+#include "platform/bionic/mte.h"
+#include "platform/bionic/page.h"
+#include "private/ErrnoRestorer.h"
+#include "private/ScopedRWLock.h"
 #include "private/bionic_constants.h"
 #include "private/bionic_defs.h"
 #include "private/bionic_globals.h"
-#include "platform/bionic/macros.h"
 #include "private/bionic_ssp.h"
 #include "private/bionic_systrace.h"
 #include "private/bionic_tls.h"
-#include "private/ErrnoRestorer.h"
 
 // x86 uses segment descriptors rather than a direct pointer to TLS.
 #if defined(__i386__)
@@ -61,6 +65,7 @@ void __init_tcb_stack_guard(bionic_tcb* tcb) {
 }
 
 void __init_bionic_tls_ptrs(bionic_tcb* tcb, bionic_tls* tls) {
+  tcb->thread()->bionic_tcb = tcb;
   tcb->thread()->bionic_tls = tls;
   tcb->tls_slot(TLS_SLOT_BIONIC_TLS) = tls;
 }
@@ -68,25 +73,30 @@ void __init_bionic_tls_ptrs(bionic_tcb* tcb, bionic_tls* tls) {
 // Allocate a temporary bionic_tls that the dynamic linker's main thread can
 // use while it's loading the initial set of ELF modules.
 bionic_tls* __allocate_temp_bionic_tls() {
-  size_t allocation_size = __BIONIC_ALIGN(sizeof(bionic_tls), PAGE_SIZE);
+  size_t allocation_size = __BIONIC_ALIGN(sizeof(bionic_tls), page_size());
   void* allocation = mmap(nullptr, allocation_size,
                           PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS,
                           -1, 0);
   if (allocation == MAP_FAILED) {
-    // Avoid strerror because it might need bionic_tls.
-    async_safe_fatal("failed to allocate bionic_tls: error %d", errno);
+    async_safe_fatal("failed to allocate bionic_tls: %m");
   }
   return static_cast<bionic_tls*>(allocation);
 }
 
 void __free_temp_bionic_tls(bionic_tls* tls) {
-  munmap(tls, __BIONIC_ALIGN(sizeof(bionic_tls), PAGE_SIZE));
+  munmap(tls, __BIONIC_ALIGN(sizeof(bionic_tls), page_size()));
 }
 
 static void __init_alternate_signal_stack(pthread_internal_t* thread) {
   // Create and set an alternate signal stack.
-  void* stack_base = mmap(nullptr, SIGNAL_STACK_SIZE, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+  int prot = PROT_READ | PROT_WRITE;
+#ifdef __aarch64__
+  if (atomic_load(&__libc_memtag_stack)) {
+    prot |= PROT_MTE;
+  }
+#endif
+  void* stack_base = mmap(nullptr, SIGNAL_STACK_SIZE, prot, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (stack_base != MAP_FAILED) {
     // Create a guard to catch stack overflows in signal handlers.
     if (mprotect(stack_base, PTHREAD_GUARD_SIZE, PROT_NONE) == -1) {
@@ -107,14 +117,17 @@ static void __init_alternate_signal_stack(pthread_internal_t* thread) {
 }
 
 static void __init_shadow_call_stack(pthread_internal_t* thread __unused) {
-#ifdef __aarch64__
-  // Allocate the stack and the guard region.
+#if defined(__aarch64__) || defined(__riscv)
+  // Allocate the shadow call stack and its guard region.
   char* scs_guard_region = reinterpret_cast<char*>(
-      mmap(nullptr, SCS_GUARD_REGION_SIZE, 0, MAP_PRIVATE | MAP_ANON, -1, 0));
+      mmap(nullptr, SCS_GUARD_REGION_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0));
+  if (scs_guard_region == MAP_FAILED) {
+    async_safe_fatal("failed to allocate shadow stack: %m");
+  }
   thread->shadow_call_stack_guard_region = scs_guard_region;
 
-  // The address is aligned to SCS_SIZE so that we only need to store the lower log2(SCS_SIZE) bits
-  // in jmp_buf.
+  // Align the address to SCS_SIZE so that we only need to store the lower log2(SCS_SIZE) bits
+  // in jmp_buf. See the SCS commentary in pthread_internal.h for more detail.
   char* scs_aligned_guard_region =
       reinterpret_cast<char*>(align_up(reinterpret_cast<uintptr_t>(scs_guard_region), SCS_SIZE));
 
@@ -124,11 +137,17 @@ static void __init_shadow_call_stack(pthread_internal_t* thread __unused) {
   size_t scs_offset =
       (getpid() == 1) ? 0 : (arc4random_uniform(SCS_GUARD_REGION_SIZE / SCS_SIZE - 1) * SCS_SIZE);
 
-  // Make the stack readable and writable and store its address in register x18. This is
-  // deliberately the only place where the address is stored.
-  char *scs = scs_aligned_guard_region + scs_offset;
-  mprotect(scs, SCS_SIZE, PROT_READ | PROT_WRITE);
+  // Make the stack read-write, and store its address in the register we're using as the shadow
+  // stack pointer. This is deliberately the only place where the address is stored.
+  char* scs = scs_aligned_guard_region + scs_offset;
+  if (mprotect(scs, SCS_SIZE, PROT_READ | PROT_WRITE) == -1) {
+    async_safe_fatal("shadow stack read-write mprotect(%p, %d) failed: %m", scs, SCS_SIZE);
+  }
+#if defined(__aarch64__)
   __asm__ __volatile__("mov x18, %0" ::"r"(scs));
+#elif defined(__riscv)
+  __asm__ __volatile__("mv x3, %0" ::"r"(scs));
+#endif
 #endif
 }
 
@@ -157,12 +176,11 @@ int __init_thread(pthread_internal_t* thread) {
     if (need_set) {
       if (policy == -1) {
         async_safe_format_log(ANDROID_LOG_WARN, "libc",
-                              "pthread_create sched_getscheduler failed: %s", strerror(errno));
+                              "pthread_create sched_getscheduler failed: %m");
         return errno;
       }
       if (sched_getparam(0, &param) == -1) {
-        async_safe_format_log(ANDROID_LOG_WARN, "libc",
-                              "pthread_create sched_getparam failed: %s", strerror(errno));
+        async_safe_format_log(ANDROID_LOG_WARN, "libc", "pthread_create sched_getparam failed: %m");
         return errno;
       }
     }
@@ -178,8 +196,8 @@ int __init_thread(pthread_internal_t* thread) {
   if (need_set) {
     if (sched_setscheduler(thread->tid, policy, &param) == -1) {
       async_safe_format_log(ANDROID_LOG_WARN, "libc",
-                            "pthread_create sched_setscheduler(%d, {%d}) call failed: %s", policy,
-                            param.sched_priority, strerror(errno));
+                            "pthread_create sched_setscheduler(%d, {%d}) call failed: %m", policy,
+                            param.sched_priority);
 #if defined(__LP64__)
       // For backwards compatibility reasons, we only report failures on 64-bit devices.
       return errno;
@@ -190,12 +208,11 @@ int __init_thread(pthread_internal_t* thread) {
   return 0;
 }
 
-
 // Allocate a thread's primary mapping. This mapping includes static TLS and
 // optionally a stack. Static TLS includes ELF TLS segments and the bionic_tls
 // struct.
 //
-// The stack_guard_size must be a multiple of the PAGE_SIZE.
+// The stack_guard_size must be a multiple of the page_size().
 ThreadMapping __allocate_thread_mapping(size_t stack_size, size_t stack_guard_size) {
   const StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;
 
@@ -207,7 +224,7 @@ ThreadMapping __allocate_thread_mapping(size_t stack_size, size_t stack_guard_si
 
   // Align the result to a page size.
   const size_t unaligned_size = mmap_size;
-  mmap_size = __BIONIC_ALIGN(mmap_size, PAGE_SIZE);
+  mmap_size = __BIONIC_ALIGN(mmap_size, page_size());
   if (mmap_size < unaligned_size) return {};
 
   // Create a new private anonymous map. Make the entire mapping PROT_NONE, then carve out a
@@ -215,19 +232,25 @@ ThreadMapping __allocate_thread_mapping(size_t stack_size, size_t stack_guard_si
   const int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE;
   char* const space = static_cast<char*>(mmap(nullptr, mmap_size, PROT_NONE, flags, -1, 0));
   if (space == MAP_FAILED) {
-    async_safe_format_log(ANDROID_LOG_WARN,
-                          "libc",
-                          "pthread_create failed: couldn't allocate %zu-bytes mapped space: %s",
-                          mmap_size, strerror(errno));
+    async_safe_format_log(ANDROID_LOG_WARN, "libc",
+                          "pthread_create failed: couldn't allocate %zu-bytes mapped space: %m",
+                          mmap_size);
     return {};
   }
   const size_t writable_size = mmap_size - stack_guard_size - PTHREAD_GUARD_SIZE;
-  if (mprotect(space + stack_guard_size,
-               writable_size,
-               PROT_READ | PROT_WRITE) != 0) {
-    async_safe_format_log(ANDROID_LOG_WARN, "libc",
-                          "pthread_create failed: couldn't mprotect R+W %zu-byte thread mapping region: %s",
-                          writable_size, strerror(errno));
+  int prot = PROT_READ | PROT_WRITE;
+  const char* prot_str = "R+W";
+#ifdef __aarch64__
+  if (atomic_load(&__libc_memtag_stack)) {
+    prot |= PROT_MTE;
+    prot_str = "R+W+MTE";
+  }
+#endif
+  if (mprotect(space + stack_guard_size, writable_size, prot) != 0) {
+    async_safe_format_log(
+        ANDROID_LOG_WARN, "libc",
+        "pthread_create failed: couldn't mprotect %s %zu-byte thread mapping region: %m", prot_str,
+        writable_size);
     munmap(space, mmap_size);
     return {};
   }
@@ -251,9 +274,9 @@ static int __allocate_thread(pthread_attr_t* attr, bionic_tcb** tcbp, void** chi
   if (attr->stack_base == nullptr) {
     // The caller didn't provide a stack, so allocate one.
 
-    // Make sure the guard size is a multiple of PAGE_SIZE.
+    // Make sure the guard size is a multiple of page_size().
     const size_t unaligned_guard_size = attr->guard_size;
-    attr->guard_size = __BIONIC_ALIGN(attr->guard_size, PAGE_SIZE);
+    attr->guard_size = __BIONIC_ALIGN(attr->guard_size, page_size());
     if (attr->guard_size < unaligned_guard_size) return EAGAIN;
 
     mapping = __allocate_thread_mapping(attr->stack_size, attr->guard_size);
@@ -300,6 +323,7 @@ static int __allocate_thread(pthread_attr_t* attr, bionic_tcb** tcbp, void** chi
   thread->mmap_size = mapping.mmap_size;
   thread->mmap_base_unguarded = mapping.mmap_base_unguarded;
   thread->mmap_size_unguarded = mapping.mmap_size_unguarded;
+  thread->stack_top = reinterpret_cast<uintptr_t>(stack_top);
 
   *tcbp = tcb;
   *child_stack = stack_top;
@@ -328,6 +352,11 @@ void __set_stack_and_tls_vma_name(bool is_main_thread) {
 extern "C" int __rt_sigprocmask(int, const sigset64_t*, sigset64_t*, size_t);
 
 __attribute__((no_sanitize("hwaddress")))
+#if defined(__aarch64__)
+// This function doesn't return, but it does appear in stack traces. Avoid using return PAC in this
+// function because we may end up resetting IA, which may confuse unwinders due to mismatching keys.
+__attribute__((target("branch-protection=bti")))
+#endif
 static int __pthread_start(void* arg) {
   pthread_internal_t* thread = reinterpret_cast<pthread_internal_t*>(arg);
 
@@ -342,6 +371,16 @@ static int __pthread_start(void* arg) {
   __set_stack_and_tls_vma_name(false);
   __init_additional_stacks(thread);
   __rt_sigprocmask(SIG_SETMASK, &thread->start_mask, nullptr, sizeof(thread->start_mask));
+#if defined(__aarch64__)
+  // Chrome's sandbox prevents this prctl, so only reset IA if the target SDK level is high enough.
+  // Furthermore, processes loaded from vendor partitions may have their own sandboxes that would
+  // reject the prctl. Because no devices launched with PAC enabled before API level 31, we can
+  // avoid issues on upgrading devices by checking for PAC support before issuing the prctl.
+  static const bool pac_supported = getauxval(AT_HWCAP) & HWCAP_PACA;
+  if (pac_supported && android_get_application_target_sdk_version() >= 31) {
+    prctl(PR_PAC_RESET_KEYS, PR_PAC_APIAKEY, 0, 0, 0);
+  }
+#endif
 
   void* result = thread->start_routine(thread->start_routine_arg);
   pthread_exit(result);
@@ -349,13 +388,14 @@ static int __pthread_start(void* arg) {
   return 0;
 }
 
-// A dummy start routine for pthread_create failures where we've created a thread but aren't
+// A no-op start routine for pthread_create failures where we've created a thread but aren't
 // going to run user code on it. We swap out the user's start routine for this and take advantage
 // of the regular thread teardown to free up resources.
 static void* __do_nothing(void*) {
   return nullptr;
 }
 
+pthread_rwlock_t g_thread_creation_lock = PTHREAD_RWLOCK_INITIALIZER;
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
 int pthread_create(pthread_t* thread_out, pthread_attr_t const* attr,
@@ -405,6 +445,16 @@ int pthread_create(pthread_t* thread_out, pthread_attr_t const* attr,
   tls = &tls_descriptor;
 #endif
 
+  ScopedReadLock locker(&g_thread_creation_lock);
+
+// This has to be done under g_thread_creation_lock or g_thread_list_lock to avoid racing with
+// __pthread_internal_remap_stack_with_mte.
+#ifdef __aarch64__
+  if (__libc_memtag_stack_abi) {
+    tcb->tls_slot(TLS_SLOT_STACK_MTE) = __allocate_stack_mte_ringbuffer(0, thread);
+  }
+#endif
+
   sigset64_t block_all_mask;
   sigfillset64(&block_all_mask);
   __rt_sigprocmask(SIG_SETMASK, &block_all_mask, &thread->start_mask, sizeof(thread->start_mask));
@@ -419,8 +469,7 @@ int pthread_create(pthread_t* thread_out, pthread_attr_t const* attr,
     if (thread->mmap_size != 0) {
       munmap(thread->mmap_base, thread->mmap_size);
     }
-    async_safe_format_log(ANDROID_LOG_WARN, "libc", "pthread_create failed: clone failed: %s",
-                          strerror(clone_errno));
+    async_safe_format_log(ANDROID_LOG_WARN, "libc", "pthread_create failed: clone failed: %m");
     return clone_errno;
   }
 

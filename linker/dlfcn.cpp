@@ -28,8 +28,9 @@
 
 #include "linker.h"
 #include "linker_cfi.h"
-#include "linker_globals.h"
+#include "linker_debuggerd.h"
 #include "linker_dlwarning.h"
+#include "linker_globals.h"
 
 #include <link.h>
 #include <pthread.h>
@@ -92,9 +93,11 @@ libc_shared_globals* __loader_shared_globals() __LINKER_PUBLIC__;
 #if defined(__arm__)
 _Unwind_Ptr __loader_dl_unwind_find_exidx(_Unwind_Ptr pc, int* pcount) __LINKER_PUBLIC__;
 #endif
+bool __loader_android_handle_signal(int signal_number, siginfo_t* info,
+                                    void* context) __LINKER_PUBLIC__;
 }
 
-static pthread_mutex_t g_dl_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+pthread_mutex_t g_dl_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
 static char* __bionic_set_dlerror(char* new_value) {
   char* old_value = __get_thread()->current_dlerror;
@@ -279,10 +282,12 @@ bool __loader_android_link_namespaces_all_libs(android_namespace_t* namespace_fr
 }
 
 android_namespace_t* __loader_android_get_exported_namespace(const char* name) {
+  ScopedPthreadMutexLocker locker(&g_dl_mutex);
   return get_exported_namespace(name);
 }
 
 void __loader_cfi_fail(uint64_t CallSiteTypeId, void* Ptr, void *DiagData, void *CallerPc) {
+  ScopedPthreadMutexLocker locker(&g_dl_mutex);
   CFIShadowWriter::CfiFail(CallSiteTypeId, Ptr, DiagData, CallerPc);
 }
 
@@ -298,6 +303,10 @@ void __loader_remove_thread_local_dtor(void* dso_handle) {
 
 libc_shared_globals* __loader_shared_globals() {
   return __libc_shared_globals();
+}
+
+bool __loader_android_handle_signal(int signal_number, siginfo_t* info, void* context) {
+  return debuggerd_handle_signal(signal_number, info, context);
 }
 
 static uint8_t __libdl_info_buf[sizeof(soinfo)] __attribute__((aligned(8)));
@@ -330,7 +339,8 @@ soinfo* get_libdl_info(const soinfo& linker_si) {
     __libdl_info->target_sdk_version_ = __ANDROID_API__;
     __libdl_info->generate_handle();
 #if defined(__work_around_b_24465209__)
-    strlcpy(__libdl_info->old_name_, __libdl_info->soname_, sizeof(__libdl_info->old_name_));
+    strlcpy(__libdl_info->old_name_, __libdl_info->soname_.c_str(),
+            sizeof(__libdl_info->old_name_));
 #endif
   }
 

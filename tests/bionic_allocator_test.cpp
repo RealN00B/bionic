@@ -42,19 +42,19 @@ namespace {
  * this one has size below allocator cap which is 2*sizeof(void*)
  */
 struct test_struct_small {
-  char dummy_str[5];
+  char str[5];
 };
 
 struct test_struct_large {
-  char dummy_str[1009];
+  char str[1009];
 };
 
 struct test_struct_huge {
-  char dummy_str[73939];
+  char str[73939];
 };
 
 struct test_struct_512 {
-  char dummy_str[503];
+  char str[503];
 };
 
 };
@@ -238,23 +238,27 @@ TEST(bionic_allocator, test_memalign_small) {
 TEST(bionic_allocator, test_memalign_large) {
   BionicAllocator allocator;
   void* ptr;
+  size_t alignment;
 
-  // a large object with alignment < PAGE_SIZE
-  ptr = allocator.memalign(0x100, 0x2000);
+  // a large object with alignment < kPageSize
+  alignment = kPageSize >> 1;
+  ptr = allocator.memalign(alignment, 0x2000);
   ASSERT_TRUE(ptr != nullptr);
-  ASSERT_EQ(0U, reinterpret_cast<uintptr_t>(ptr) % 0x100);
+  ASSERT_EQ(0U, reinterpret_cast<uintptr_t>(ptr) % alignment);
   allocator.free(ptr);
 
-  // a large object with alignment == PAGE_SIZE
-  ptr = allocator.memalign(0x1000, 0x2000);
+  // a large object with alignment == kPageSize
+  alignment = kPageSize;
+  ptr = allocator.memalign(alignment, 0x2000);
   ASSERT_TRUE(ptr != nullptr);
-  ASSERT_EQ(0U, reinterpret_cast<uintptr_t>(ptr) % 0x1000);
+  ASSERT_EQ(0U, reinterpret_cast<uintptr_t>(ptr) % alignment);
   allocator.free(ptr);
 
-  // A large object with alignment > PAGE_SIZE is only guaranteed to have page
+  // A large object with alignment > kPageSize is only guaranteed to have page
   // alignment.
-  ptr = allocator.memalign(0x2000, 0x4000);
+  alignment = kPageSize << 1;
+  ptr = allocator.memalign(alignment, 0x4000);
   ASSERT_TRUE(ptr != nullptr);
-  ASSERT_EQ(0U, reinterpret_cast<uintptr_t>(ptr) % 0x1000);
+  ASSERT_EQ(0U, reinterpret_cast<uintptr_t>(ptr) % kPageSize);
   allocator.free(ptr);
 }

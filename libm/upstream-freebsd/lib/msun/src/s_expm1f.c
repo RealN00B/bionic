@@ -13,9 +13,6 @@
  * ====================================================
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_expm1f.c 352710 2019-09-25 18:50:57Z dim $");
-
 #include <float.h>
 
 #include "math.h"

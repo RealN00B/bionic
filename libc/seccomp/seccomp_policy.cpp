@@ -25,13 +25,13 @@
 #include <vector>
 
 #include <android-base/logging.h>
+#include <android-base/macros.h>
 
 #include "func_to_syscall_nrs.h"
 #include "seccomp_bpfs.h"
 
 #if defined __arm__ || defined __aarch64__
 
-#define DUAL_ARCH
 #define PRIMARY_ARCH AUDIT_ARCH_AARCH64
 static const struct sock_filter* primary_app_filter = arm64_app_filter;
 static const size_t primary_app_filter_size = arm64_app_filter_size;
@@ -52,9 +52,9 @@ static const size_t secondary_system_filter_size = arm_system_filter_size;
 
 static const long secondary_setresgid = __arm_setresgid;
 static const long secondary_setresuid = __arm_setresuid;
+
 #elif defined __i386__ || defined __x86_64__
 
-#define DUAL_ARCH
 #define PRIMARY_ARCH AUDIT_ARCH_X86_64
 static const struct sock_filter* primary_app_filter = x86_64_app_filter;
 static const size_t primary_app_filter_size = x86_64_app_filter_size;
@@ -75,29 +75,20 @@ static const size_t secondary_system_filter_size = x86_system_filter_size;
 
 static const long secondary_setresgid = __x86_setresgid;
 static const long secondary_setresuid = __x86_setresuid;
-#elif defined __mips__ || defined __mips64__
 
-#define DUAL_ARCH
-#define PRIMARY_ARCH AUDIT_ARCH_MIPSEL64
-static const struct sock_filter* primary_app_filter = mips64_app_filter;
-static const size_t primary_app_filter_size = mips64_app_filter_size;
-static const struct sock_filter* primary_app_zygote_filter = mips64_app_zygote_filter;
-static const size_t primary_app_zygote_filter_size = mips64_app_zygote_filter_size;
-static const struct sock_filter* primary_system_filter = mips64_system_filter;
-static const size_t primary_system_filter_size = mips64_system_filter_size;
+#elif defined(__riscv)
 
-static const long primary_setresgid = __mips64_setresgid;
-static const long primary_setresuid = __mips64_setresuid;
-#define SECONDARY_ARCH AUDIT_ARCH_MIPSEL
-static const struct sock_filter* secondary_app_filter = mips_app_filter;
-static const size_t secondary_app_filter_size = mips_app_filter_size;
-static const struct sock_filter* secondary_app_zygote_filter = mips_app_zygote_filter;
-static const size_t secondary_app_zygote_filter_size = mips_app_zygote_filter_size;
-static const struct sock_filter* secondary_system_filter = mips_system_filter;
-static const size_t secondary_system_filter_size = mips_system_filter_size;
+#define PRIMARY_ARCH AUDIT_ARCH_RISCV64
+static const struct sock_filter* primary_app_filter = riscv64_app_filter;
+static const size_t primary_app_filter_size = riscv64_app_filter_size;
+static const struct sock_filter* primary_app_zygote_filter = riscv64_app_zygote_filter;
+static const size_t primary_app_zygote_filter_size = riscv64_app_zygote_filter_size;
+static const struct sock_filter* primary_system_filter = riscv64_system_filter;
+static const size_t primary_system_filter_size = riscv64_system_filter_size;
 
-static const long secondary_setresgid = __mips_setresgid;
-static const long secondary_setresuid = __mips_setresuid;
+static const long primary_setresgid = __riscv64_setresgid;
+static const long primary_setresuid = __riscv64_setresuid;
+
 #else
 #error No architecture was defined!
 #endif
@@ -121,7 +112,7 @@ static void ExamineSyscall(filter& f) {
     f.push_back(BPF_STMT(BPF_LD|BPF_W|BPF_ABS, syscall_nr));
 }
 
-#ifdef DUAL_ARCH
+#if defined(SECONDARY_ARCH)
 static bool SetValidateArchitectureJumpTarget(size_t offset, filter& f) {
     size_t jump_length = f.size() - offset - 1;
     auto u8_jump_length = (__u8) jump_length;
@@ -163,18 +154,26 @@ static void ValidateSyscallArgInRange(filter& f, __u32 arg_num, __u32 range_min,
     Disallow(f);
 }
 
-// This filter is meant to be installed in addition to a regular whitelist filter.
+// This filter is meant to be installed in addition to a regular allowlist filter.
 // Therefore, it's default action has to be Allow, except when the evaluated
 // system call matches setresuid/setresgid and the arguments don't fall within the
 // passed in range.
 //
-// The regular whitelist only allows setresuid/setresgid for UID/GID changes, so
+// The regular allowlist only allows setresuid/setresgid for UID/GID changes, so
 // that's the only system call we need to check here. A CTS test ensures the other
 // calls will remain blocked.
 static void ValidateSetUidGid(filter& f, uint32_t uid_gid_min, uint32_t uid_gid_max, bool primary) {
+#if defined(SECONDARY_ARCH)
+    __u32 setresuid_nr = primary ? primary_setresuid : secondary_setresuid;
+    __u32 setresgid_nr = primary ? primary_setresgid : secondary_setresgid;
+#else
+    __u32 setresuid_nr = primary_setresuid;
+    __u32 setresgid_nr = primary_setresgid;
+    UNUSED(primary);
+#endif
+
     // Check setresuid(ruid, euid, sguid) fall within range
     ExamineSyscall(f);
-    __u32 setresuid_nr = primary ? primary_setresuid : secondary_setresuid;
     f.push_back(BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K, setresuid_nr, 0, 12));
     for (int arg = 0; arg < 3; arg++) {
         ValidateSyscallArgInRange(f, arg, uid_gid_min, uid_gid_max);
@@ -182,7 +181,6 @@ static void ValidateSetUidGid(filter& f, uint32_t uid_gid_min, uint32_t uid_gid_
 
     // Check setresgid(rgid, egid, sgid) fall within range
     ExamineSyscall(f);
-    __u32 setresgid_nr = primary ? primary_setresgid : secondary_setresgid;
     f.push_back(BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K, setresgid_nr, 0, 12));
     for (int arg = 0; arg < 3; arg++) {
         ValidateSyscallArgInRange(f, arg, uid_gid_min, uid_gid_max);
@@ -207,7 +205,7 @@ static bool install_filter(filter const& f) {
 
 bool _install_setuidgid_filter(uint32_t uid_gid_min, uint32_t uid_gid_max) {
     filter f;
-#ifdef DUAL_ARCH
+#if defined(SECONDARY_ARCH)
     // Note that for mixed 64/32 bit architectures, ValidateArchitecture inserts a
     // jump that must be changed to point to the start of the 32-bit policy
     // 32 bit syscalls will not hit the policy between here and the call to SetJump
@@ -218,7 +216,7 @@ bool _install_setuidgid_filter(uint32_t uid_gid_min, uint32_t uid_gid_max) {
 
     ValidateSetUidGid(f, uid_gid_min, uid_gid_max, true /* primary */);
 
-#ifdef DUAL_ARCH
+#if defined(SECONDARY_ARCH)
     if (!SetValidateArchitectureJumpTarget(offset_to_secondary_filter, f)) {
         return false;
     }
@@ -236,32 +234,43 @@ enum FilterType {
 };
 
 bool _set_seccomp_filter(FilterType type) {
-    const sock_filter *p, *s;
-    size_t p_size, s_size;
     filter f;
+
+    const sock_filter* p;
+    size_t p_size;
+#if defined(SECONDARY_ARCH)
+    const sock_filter* s;
+    size_t s_size;
+#endif
 
     switch (type) {
       case APP:
         p = primary_app_filter;
         p_size = primary_app_filter_size;
+#if defined(SECONDARY_ARCH)
         s = secondary_app_filter;
         s_size = secondary_app_filter_size;
+#endif
         break;
       case APP_ZYGOTE:
         p = primary_app_zygote_filter;
         p_size = primary_app_zygote_filter_size;
+#if defined(SECONDARY_ARCH)
         s = secondary_app_zygote_filter;
         s_size = secondary_app_zygote_filter_size;
+#endif
         break;
       case SYSTEM:
         p = primary_system_filter;
         p_size = primary_system_filter_size;
+#if defined(SECONDARY_ARCH)
         s = secondary_system_filter;
         s_size = secondary_system_filter_size;
+#endif
         break;
     }
 
-#ifdef DUAL_ARCH
+#if defined(SECONDARY_ARCH)
     // Note that for mixed 64/32 bit architectures, ValidateArchitecture inserts a
     // jump that must be changed to point to the start of the 32-bit policy
     // 32 bit syscalls will not hit the policy between here and the call to SetJump
@@ -277,7 +286,7 @@ bool _set_seccomp_filter(FilterType type) {
     }
     Disallow(f);
 
-#ifdef DUAL_ARCH
+#if defined(SECONDARY_ARCH)
     if (!SetValidateArchitectureJumpTarget(offset_to_secondary_filter, f)) {
         return false;
     }

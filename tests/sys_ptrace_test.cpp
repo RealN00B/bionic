@@ -41,11 +41,6 @@ using namespace std::chrono_literals;
 
 using android::base::unique_fd;
 
-// Host libc does not define this.
-#ifndef TRAP_HWBKPT
-#define TRAP_HWBKPT 4
-#endif
-
 class ChildGuard {
  public:
   explicit ChildGuard(pid_t pid) : pid(pid) {}
@@ -64,10 +59,11 @@ enum class HwFeature { Watchpoint, Breakpoint };
 
 static void check_hw_feature_supported(pid_t child, HwFeature feature) {
 #if defined(__arm__)
+  errno = 0;
   long capabilities;
   long result = ptrace(PTRACE_GETHBPREGS, child, 0, &capabilities);
   if (result == -1) {
-    EXPECT_EQ(EIO, errno);
+    EXPECT_ERRNO(EIO);
     GTEST_SKIP() << "Hardware debug support disabled at kernel configuration time";
   }
   uint8_t hb_count = capabilities & 0xff;
@@ -88,10 +84,11 @@ static void check_hw_feature_supported(pid_t child, HwFeature feature) {
   iov.iov_base = &dreg_state;
   iov.iov_len = sizeof(dreg_state);
 
+  errno = 0;
   long result = ptrace(PTRACE_GETREGSET, child,
                        feature == HwFeature::Watchpoint ? NT_ARM_HW_WATCH : NT_ARM_HW_BREAK, &iov);
   if (result == -1) {
-    ASSERT_EQ(EINVAL, errno);
+    ASSERT_ERRNO(EINVAL);
     GTEST_SKIP() << "Hardware support missing";
   } else if ((dreg_state.dbg_info & 0xff) == 0) {
     if (feature == HwFeature::Watchpoint) {
@@ -134,7 +131,7 @@ static void set_watchpoint(pid_t child, uintptr_t address, size_t size) {
   ASSERT_EQ(0, ptrace(PTRACE_POKEUSER, child, offsetof(user, u_debugreg[0]), address)) << strerror(errno);
   errno = 0;
   unsigned data = ptrace(PTRACE_PEEKUSER, child, offsetof(user, u_debugreg[7]), nullptr);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
 
   const unsigned size_flag = (size == 8) ? 2 : size - 1;
   const unsigned enable = 1;
@@ -257,9 +254,9 @@ static void watchpoint_imprecise_child(Uint128_t& data) {
   asm volatile("stm %0, { r0, r1, r2, r3 }" : : "r"(&data));
 #elif defined(__aarch64__)
   asm volatile("stp x0, x1, %0" : : "m"(data));
-#elif defined(__mips__)
-// TODO
+#elif defined(__riscv)
   UNUSED(data);
+  GTEST_LOG_(INFO) << "missing riscv64 instruction to store > 64 bits in one instruction";
 #endif
 }
 
@@ -323,7 +320,7 @@ static void set_breakpoint(pid_t child) {
       << strerror(errno);
   errno = 0;
   unsigned data = ptrace(PTRACE_PEEKUSER, child, offsetof(user, u_debugreg[7]), nullptr);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
 
   const unsigned size = 0;
   const unsigned enable = 1;

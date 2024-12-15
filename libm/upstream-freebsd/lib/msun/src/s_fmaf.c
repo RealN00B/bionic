@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005-2011 David Schultz <das@FreeBSD.ORG>
  * All rights reserved.
@@ -26,14 +26,18 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_fmaf.c 326219 2017-11-26 02:00:33Z pfg $");
-
 #include <fenv.h>
 
 #include "math.h"
 #include "math_private.h"
 
+#ifdef USE_BUILTIN_FMAF
+float
+fmaf(float x, float y, float z)
+{
+	return (__builtin_fmaf(x, y, z));
+}
+#else
 /*
  * Fused multiply-add: Compute x * y + z with a single rounding error.
  *
@@ -69,3 +73,4 @@ fmaf(float x, float y, float z)
 		SET_LOW_WORD(adjusted_result, lr + 1);
 	return (adjusted_result);
 }
+#endif /* !USE_BUILTIN_FMAF */

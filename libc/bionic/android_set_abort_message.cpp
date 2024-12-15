@@ -28,9 +28,12 @@
 
 #include <android/set_abort_message.h>
 
+#include <async_safe/log.h>
+
+#include <bits/stdatomic.h>
 #include <pthread.h>
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
@@ -75,6 +78,10 @@ void android_set_abort_message(const char* msg) {
     // We already have an abort message.
     // Assume that the first crash is the one most worth reporting.
     return;
+  }
+
+  if (msg == nullptr) {
+    msg = "(null)";
   }
 
   size_t size = sizeof(magic_abort_msg_t) + strlen(msg) + 1;

@@ -17,10 +17,13 @@
 #include <gtest/gtest.h>
 
 #include <dlfcn.h>
+#include <elf.h>
 #include <limits.h>
-#include <stdio.h>
+#include <link.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+#include <sys/cdefs.h>
 #if __has_include(<sys/auxv.h>)
 #include <sys/auxv.h>
 #endif
@@ -30,30 +33,13 @@
 #include <thread>
 
 #include <android-base/file.h>
+#include <android-base/macros.h>
 #include <android-base/scopeguard.h>
 
 #include "gtest_globals.h"
 #include "gtest_utils.h"
 #include "dlfcn_symlink_support.h"
 #include "utils.h"
-
-#if defined(__BIONIC__) && (defined(__arm__) || defined(__i386__))
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-parameter"
-
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Object/Binary.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Object/ObjectFile.h>
-
-#pragma clang diagnostic pop
-#endif //  defined(__ANDROID__) && (defined(__arm__) || defined(__i386__))
-
-// Declared manually because the macro definitions in <elf.h> conflict with LLVM headers.
-#ifdef __arm__
-typedef uintptr_t _Unwind_Ptr;
-extern "C" _Unwind_Ptr dl_unwind_find_exidx(_Unwind_Ptr, int*);
-#endif
 
 #define ASSERT_SUBSTR(needle, haystack) \
     ASSERT_PRED_FORMAT2(::testing::IsSubstring, needle, haystack)
@@ -273,8 +259,9 @@ TEST(dlfcn, dlopen_vdso) {
   dlclose(handle);
 }
 
-// mips doesn't support ifuncs
-#if !defined(__mips__)
+// HWASan uses an ifunc to describe the location of its shadow memory,
+// so even though it's an unusual case, Android needs to support
+// "ifunc variables".
 TEST(dlfcn, ifunc_variable) {
   typedef const char* (*fn_ptr)();
 
@@ -367,7 +354,6 @@ TEST(dlfcn, ifunc_ctor_call_rtld_lazy) {
   ASSERT_STREQ("true", is_ctor_called());
   dlclose(handle);
 }
-#endif
 
 TEST(dlfcn, dlopen_check_relocation_dt_needed_order) {
   // This is the structure of the test library and
@@ -838,6 +824,8 @@ TEST(dlfcn, dlopen_failure) {
 }
 
 TEST(dlfcn, dlclose_unload) {
+  const size_t kPageSize = getpagesize();
+
   void* handle = dlopen("libtest_simple.so", RTLD_NOW);
   ASSERT_TRUE(handle != nullptr) << dlerror();
   uint32_t* taxicab_number = static_cast<uint32_t*>(dlsym(handle, "dlopen_testlib_taxicab_number"));
@@ -847,9 +835,9 @@ TEST(dlfcn, dlclose_unload) {
   // Making sure that the library has been unmapped as part of library unload
   // process. Note that mprotect somewhat counter-intuitively returns ENOMEM in
   // this case.
-  uintptr_t page_start = reinterpret_cast<uintptr_t>(taxicab_number) & ~(PAGE_SIZE - 1);
-  ASSERT_TRUE(mprotect(reinterpret_cast<void*>(page_start), PAGE_SIZE, PROT_NONE) != 0);
-  ASSERT_EQ(ENOMEM, errno) << strerror(errno);
+  uintptr_t page_start = reinterpret_cast<uintptr_t>(taxicab_number) & ~(kPageSize - 1);
+  ASSERT_TRUE(mprotect(reinterpret_cast<void*>(page_start), kPageSize, PROT_NONE) != 0);
+  ASSERT_ERRNO(ENOMEM);
 }
 
 static void ConcurrentDlErrorFn(std::string& error) {
@@ -903,11 +891,14 @@ TEST(dlfcn, dlsym_failures) {
   void* sym;
 
 #if defined(__BIONIC__) && !defined(__LP64__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
   // RTLD_DEFAULT in lp32 bionic is not (void*)0
   // so it can be distinguished from the NULL handle.
   sym = dlsym(nullptr, "test");
   ASSERT_TRUE(sym == nullptr);
   ASSERT_STREQ("dlsym failed: library handle is null", dlerror());
+#pragma clang diagnostic pop
 #endif
 
   // Symbol that doesn't exist.
@@ -981,26 +972,16 @@ TEST(dlfcn, dlopen_executable_by_absolute_path) {
 #endif
 }
 
-#if defined (__aarch64__)
-#define ALTERNATE_PATH_TO_SYSTEM_LIB "/system/lib64/arm64/"
-#elif defined (__arm__)
-#define ALTERNATE_PATH_TO_SYSTEM_LIB "/system/lib/arm/"
-#elif defined (__i386__)
-#define ALTERNATE_PATH_TO_SYSTEM_LIB "/system/lib/x86/"
-#elif defined (__x86_64__)
-#define ALTERNATE_PATH_TO_SYSTEM_LIB "/system/lib64/x86_64/"
-#elif defined (__mips__)
-#if defined(__LP64__)
-#define ALTERNATE_PATH_TO_SYSTEM_LIB "/system/lib64/mips64/"
+#define ALTERNATE_PATH_TO_SYSTEM_LIB "/system/lib64/" ABI_STRING "/"
+#if __has_feature(hwaddress_sanitizer)
+#define PATH_TO_LIBC PATH_TO_SYSTEM_LIB "hwasan/libc.so"
+#define PATH_TO_BOOTSTRAP_LIBC PATH_TO_SYSTEM_LIB "bootstrap/hwasan/libc.so"
+#define ALTERNATE_PATH_TO_LIBC ALTERNATE_PATH_TO_SYSTEM_LIB "hwasan/libc.so"
 #else
-#define ALTERNATE_PATH_TO_SYSTEM_LIB "/system/lib/mips/"
-#endif
-#else
-#error "Unknown architecture"
-#endif
 #define PATH_TO_LIBC PATH_TO_SYSTEM_LIB "libc.so"
 #define PATH_TO_BOOTSTRAP_LIBC PATH_TO_SYSTEM_LIB "bootstrap/libc.so"
 #define ALTERNATE_PATH_TO_LIBC ALTERNATE_PATH_TO_SYSTEM_LIB "libc.so"
+#endif
 
 TEST(dlfcn, dladdr_libc) {
 #if defined(__GLIBC__)
@@ -1008,24 +989,25 @@ TEST(dlfcn, dladdr_libc) {
 #endif
 
   Dl_info info;
-  void* addr = reinterpret_cast<void*>(puts); // well-known libc function
+  void* addr = reinterpret_cast<void*>(puts);  // An arbitrary libc function.
   ASSERT_TRUE(dladdr(addr, &info) != 0);
 
-  char libc_realpath[PATH_MAX];
-
   // Check if libc is in canonical path or in alternate path.
+  const char* expected_path;
   if (strncmp(ALTERNATE_PATH_TO_SYSTEM_LIB,
               info.dli_fname,
               sizeof(ALTERNATE_PATH_TO_SYSTEM_LIB) - 1) == 0) {
     // Platform with emulated architecture.  Symlink on ARC++.
-    ASSERT_TRUE(realpath(ALTERNATE_PATH_TO_LIBC, libc_realpath) == libc_realpath);
+    expected_path = ALTERNATE_PATH_TO_LIBC;
   } else if (strncmp(PATH_TO_BOOTSTRAP_LIBC, info.dli_fname,
                      sizeof(PATH_TO_BOOTSTRAP_LIBC) - 1) == 0) {
-    ASSERT_TRUE(realpath(PATH_TO_BOOTSTRAP_LIBC, libc_realpath) == libc_realpath);
+    expected_path = PATH_TO_BOOTSTRAP_LIBC;
   } else {
     // /system/lib is symlink when this test is executed on host.
-    ASSERT_TRUE(realpath(PATH_TO_LIBC, libc_realpath) == libc_realpath);
+    expected_path = PATH_TO_LIBC;
   }
+  char libc_realpath[PATH_MAX];
+  ASSERT_TRUE(realpath(expected_path, libc_realpath) != nullptr) << strerror(errno);
 
   ASSERT_STREQ(libc_realpath, info.dli_fname);
   // TODO: add check for dfi_fbase
@@ -1038,19 +1020,19 @@ TEST(dlfcn, dladdr_invalid) {
 
   dlerror(); // Clear any pending errors.
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
   // No symbol corresponding to NULL.
   ASSERT_EQ(dladdr(nullptr, &info), 0); // Zero on error, non-zero on success.
   ASSERT_TRUE(dlerror() == nullptr); // dladdr(3) doesn't set dlerror(3).
+#pragma clang diagnostic pop
 
   // No symbol corresponding to a stack address.
   ASSERT_EQ(dladdr(&info, &info), 0); // Zero on error, non-zero on success.
   ASSERT_TRUE(dlerror() == nullptr); // dladdr(3) doesn't set dlerror(3).
 }
 
-// GNU-style ELF hash tables are incompatible with the MIPS ABI.
-// MIPS requires .dynsym to be sorted to match the GOT but GNU-style requires sorting by hash code.
 TEST(dlfcn, dlopen_library_with_only_gnu_hash) {
-#if !defined(__mips__)
   dlerror(); // Clear any pending errors.
   void* handle = dlopen("libgnu-hash-table-library.so", RTLD_NOW);
   ASSERT_TRUE(handle != nullptr) << dlerror();
@@ -1067,9 +1049,6 @@ TEST(dlfcn, dlopen_library_with_only_gnu_hash) {
   ASSERT_TRUE(fn == dlinfo.dli_saddr);
   ASSERT_STREQ("getRandomNumber", dlinfo.dli_sname);
   ASSERT_SUBSTR("libgnu-hash-table-library.so", dlinfo.dli_fname);
-#else
-  GTEST_SKIP() << "mips toolchain does not support '--hash-style=gnu'";
-#endif
 }
 
 TEST(dlfcn, dlopen_library_with_only_sysv_hash) {
@@ -1171,7 +1150,7 @@ TEST(dlfcn, dlopen_undefined_weak_func) {
 
 TEST(dlfcn, dlopen_symlink) {
   DlfcnSymlink symlink("dlopen_symlink");
-  const std::string symlink_name = basename(symlink.get_symlink_path().c_str());
+  const std::string symlink_name = android::base::Basename(symlink.get_symlink_path());
   void* handle1 = dlopen("libdlext_test.so", RTLD_NOW);
   void* handle2 = dlopen(symlink_name.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle1 != nullptr);
@@ -1274,6 +1253,7 @@ TEST(dlfcn, symbol_versioning_default_via_dlsym) {
 }
 
 TEST(dlfcn, dlvsym_smoke) {
+#if !defined(ANDROID_HOST_MUSL)
   void* handle = dlopen("libtest_versioned_lib.so", RTLD_NOW);
   ASSERT_TRUE(handle != nullptr) << dlerror();
   typedef int (*fn_t)();
@@ -1291,6 +1271,9 @@ TEST(dlfcn, dlvsym_smoke) {
   }
 
   dlclose(handle);
+#else
+  GTEST_SKIP() << "musl doesn't have dlvsym";
+#endif
 }
 
 // This preempts the implementation from libtest_versioned_lib.so
@@ -1318,7 +1301,7 @@ TEST(dlfcn, dt_runpath_smoke) {
 }
 
 TEST(dlfcn, dt_runpath_absolute_path) {
-  std::string libpath = GetTestlibRoot() + "/libtest_dt_runpath_d.so";
+  std::string libpath = GetTestLibRoot() + "/libtest_dt_runpath_d.so";
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle != nullptr) << dlerror();
 
@@ -1552,75 +1535,35 @@ TEST(dlfcn, RTLD_macros) {
 #if defined(__BIONIC__)
 
 #if defined(__arm__)
-const llvm::ELF::Elf32_Dyn* to_dynamic_table(const char* p) {
-  return reinterpret_cast<const llvm::ELF::Elf32_Dyn*>(p);
-}
 
-// Duplicate these definitions here because they are android specific
-//  - note that we cannot include <elf.h> because #defines conflict with
-//    enum names provided by LLVM.
-//  - we also don't use llvm::ELF::DT_LOOS because its value is 0x60000000
-//    rather than the 0x6000000d we expect
-#define DT_LOOS 0x6000000d
-#define DT_ANDROID_REL (DT_LOOS + 2)
-#define DT_ANDROID_RELA (DT_LOOS + 4)
+void validate_compatibility_of_native_library(const std::string& soname, const std::string& path) {
+  // Grab the dynamic section in text form...
+  ExecTestHelper eth;
+  eth.SetArgs({"readelf", "-dW", path.c_str(), nullptr});
+  eth.Run([&]() { execvpe("readelf", eth.GetArgs(), eth.GetEnv()); }, 0, nullptr);
+  std::string output = eth.GetOutput();
 
-template<typename ELFT>
-void validate_compatibility_of_native_library(const std::string& soname,
-                                              const std::string& path, ELFT* elf) {
-  bool has_elf_hash = false;
-  bool has_android_rel = false;
-  bool has_rel = false;
-  // Find dynamic section and check that DT_HASH and there is no DT_ANDROID_REL
-  for (auto it = elf->section_begin(); it != elf->section_end(); ++it) {
-    const llvm::object::ELFSectionRef& section_ref = *it;
-    if (section_ref.getType() == llvm::ELF::SHT_DYNAMIC) {
-      llvm::StringRef data;
-      ASSERT_TRUE(!it->getContents(data)) << "unable to get SHT_DYNAMIC section data";
-      for (auto d = to_dynamic_table(data.data()); d->d_tag != llvm::ELF::DT_NULL; ++d) {
-        if (d->d_tag == llvm::ELF::DT_HASH) {
-          has_elf_hash = true;
-        } else if (d->d_tag == DT_ANDROID_REL || d->d_tag == DT_ANDROID_RELA) {
-          has_android_rel = true;
-        } else if (d->d_tag == llvm::ELF::DT_REL || d->d_tag == llvm::ELF::DT_RELA) {
-          has_rel = true;
-        }
-      }
+  // Check that there *is* a legacy DT_HASH (not just a GNU hash)...
+  ASSERT_TRUE(std::regex_search(output, std::regex("\\(HASH\\)"))) << output;
+  // Check that there is no DT_ANDROID_REL or DT_ANDROID_RELA...
+  ASSERT_FALSE(std::regex_search(output, std::regex("\\(ANDROID_REL\\)"))) << output;
+  ASSERT_FALSE(std::regex_search(output, std::regex("\\(ANDROID_RELA\\)"))) << output;
 
-      break;
-    }
-  }
-
-  ASSERT_TRUE(has_elf_hash) << path.c_str() << ": missing elf hash (DT_HASH)";
-  ASSERT_TRUE(!has_android_rel) << path.c_str() << ": has packed relocations";
-  // libdl.so is simple enough that it might not have any relocations, so
-  // exempt it from the DT_REL/DT_RELA check.
-  if (soname != "libdl.so") {
-    ASSERT_TRUE(has_rel) << path.c_str() << ": missing DT_REL/DT_RELA";
-  }
+  // Check that we have regular non-packed relocations.
+  // libdl.so is simple enough that it doesn't have any relocations.
+  ASSERT_TRUE(std::regex_search(output, std::regex("\\(RELA?\\)")) || soname == "libdl.so")
+      << output;
 }
 
 void validate_compatibility_of_native_library(const std::string& soname) {
   // On the systems with emulation system libraries would be of different
   // architecture.  Try to use alternate paths first.
   std::string path = std::string(ALTERNATE_PATH_TO_SYSTEM_LIB) + soname;
-  auto binary_or_error = llvm::object::createBinary(path);
-  if (!binary_or_error) {
+  if (access(path.c_str(), R_OK) != 0) {
     path = std::string(PATH_TO_SYSTEM_LIB) + soname;
-    binary_or_error = llvm::object::createBinary(path);
+    ASSERT_EQ(0, access(path.c_str(), R_OK));
   }
-  ASSERT_FALSE(!binary_or_error);
-
-  llvm::object::Binary* binary = binary_or_error.get().getBinary();
-
-  auto obj = llvm::dyn_cast<llvm::object::ObjectFile>(binary);
-  ASSERT_TRUE(obj != nullptr);
-
-  auto elf = llvm::dyn_cast<llvm::object::ELF32LEObjectFile>(obj);
-
-  ASSERT_TRUE(elf != nullptr);
-
-  validate_compatibility_of_native_library(soname, path, elf);
+  validate_compatibility_of_native_library(soname, path);
 }
 
 // This is a test for app compatibility workaround for arm apps
@@ -1638,9 +1581,7 @@ TEST(dlext, compat_elf_hash_and_relocation_tables) {
 #endif //  defined(__arm__)
 
 TEST(dlfcn, dlopen_invalid_rw_load_segment) {
-  const std::string libpath = GetTestlibRoot() +
-                              "/" + kPrebuiltElfDir +
-                              "/libtest_invalid-rw_load_segment.so";
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-rw_load_segment.so";
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle == nullptr);
   std::string expected_dlerror = std::string("dlopen failed: \"") + libpath + "\": W+E load segments are not allowed";
@@ -1648,9 +1589,7 @@ TEST(dlfcn, dlopen_invalid_rw_load_segment) {
 }
 
 TEST(dlfcn, dlopen_invalid_unaligned_shdr_offset) {
-  const std::string libpath = GetTestlibRoot() +
-                              "/" + kPrebuiltElfDir +
-                              "/libtest_invalid-unaligned_shdr_offset.so";
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-unaligned_shdr_offset.so";
 
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle == nullptr);
@@ -1659,9 +1598,7 @@ TEST(dlfcn, dlopen_invalid_unaligned_shdr_offset) {
 }
 
 TEST(dlfcn, dlopen_invalid_zero_shentsize) {
-  const std::string libpath = GetTestlibRoot() +
-                              "/" + kPrebuiltElfDir +
-                              "/libtest_invalid-zero_shentsize.so";
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-zero_shentsize.so";
 
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle == nullptr);
@@ -1670,9 +1607,7 @@ TEST(dlfcn, dlopen_invalid_zero_shentsize) {
 }
 
 TEST(dlfcn, dlopen_invalid_zero_shstrndx) {
-  const std::string libpath = GetTestlibRoot() +
-                              "/" + kPrebuiltElfDir +
-                              "/libtest_invalid-zero_shstrndx.so";
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-zero_shstrndx.so";
 
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle == nullptr);
@@ -1681,9 +1616,7 @@ TEST(dlfcn, dlopen_invalid_zero_shstrndx) {
 }
 
 TEST(dlfcn, dlopen_invalid_empty_shdr_table) {
-  const std::string libpath = GetTestlibRoot() +
-                              "/" + kPrebuiltElfDir +
-                              "/libtest_invalid-empty_shdr_table.so";
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-empty_shdr_table.so";
 
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle == nullptr);
@@ -1692,9 +1625,7 @@ TEST(dlfcn, dlopen_invalid_empty_shdr_table) {
 }
 
 TEST(dlfcn, dlopen_invalid_zero_shdr_table_offset) {
-  const std::string libpath = GetTestlibRoot() +
-                              "/" + kPrebuiltElfDir +
-                              "/libtest_invalid-zero_shdr_table_offset.so";
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-zero_shdr_table_offset.so";
 
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle == nullptr);
@@ -1703,9 +1634,7 @@ TEST(dlfcn, dlopen_invalid_zero_shdr_table_offset) {
 }
 
 TEST(dlfcn, dlopen_invalid_zero_shdr_table_content) {
-  const std::string libpath = GetTestlibRoot() +
-                              "/" + kPrebuiltElfDir +
-                              "/libtest_invalid-zero_shdr_table_content.so";
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-zero_shdr_table_content.so";
 
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle == nullptr);
@@ -1714,9 +1643,7 @@ TEST(dlfcn, dlopen_invalid_zero_shdr_table_content) {
 }
 
 TEST(dlfcn, dlopen_invalid_textrels) {
-  const std::string libpath = GetTestlibRoot() +
-                              "/" + kPrebuiltElfDir +
-                              "/libtest_invalid-textrels.so";
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-textrels.so";
 
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle == nullptr);
@@ -1725,14 +1652,31 @@ TEST(dlfcn, dlopen_invalid_textrels) {
 }
 
 TEST(dlfcn, dlopen_invalid_textrels2) {
-  const std::string libpath = GetTestlibRoot() +
-                              "/" + kPrebuiltElfDir +
-                              "/libtest_invalid-textrels2.so";
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-textrels2.so";
 
   void* handle = dlopen(libpath.c_str(), RTLD_NOW);
   ASSERT_TRUE(handle == nullptr);
   std::string expected_dlerror = std::string("dlopen failed: \"") + libpath + "\" has text relocations";
   ASSERT_SUBSTR(expected_dlerror.c_str(), dlerror());
+}
+
+TEST(dlfcn, dlopen_invalid_local_tls) {
+#if defined(__riscv)
+  // This is a test for bad gold behavior, and gold doesn't support riscv64.
+#else
+  const std::string libpath = GetPrebuiltElfDir() + "/libtest_invalid-local-tls.so";
+
+  void* handle = dlopen(libpath.c_str(), RTLD_NOW);
+  ASSERT_TRUE(handle == nullptr);
+#if defined(__arm__)
+  const char* referent = "local section";
+#else
+  const char* referent = "local symbol \"tls_var_2\"";
+#endif
+  std::string expected_dlerror = std::string("dlopen failed: unexpected TLS reference to ") +
+                                 referent + " in \"" + libpath + "\"";
+  ASSERT_SUBSTR(expected_dlerror.c_str(), dlerror());
+#endif
 }
 
 TEST(dlfcn, dlopen_df_1_global) {

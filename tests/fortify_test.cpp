@@ -14,16 +14,7 @@
  * limitations under the License.
  */
 
-// -Werror is on whether we like it or not, and we're intentionally doing awful
-// things in this file. GCC is dumb and doesn't have a specific error class for
-// the fortify failures (it's just -Werror), so we can't use anything more
-// constrained than disabling all the warnings in the file :( It also won't let
-// us use system_header in a .cpp file, so we have to #include this from
-// fortify_test_main.cpp.
-#pragma GCC system_header
-
 #include <gtest/gtest.h>
-#include "BionicDeathTest.h"
 
 #include <fcntl.h>
 #include <malloc.h>
@@ -36,7 +27,9 @@
 #include <sys/types.h>
 #include <time.h>
 
-#if __BIONIC__
+#include <android-base/silent_death_test.h>
+
+#if defined(__BIONIC__)
 #define ASSERT_FORTIFY(expr) ASSERT_EXIT(expr, testing::KilledBySignal(SIGABRT), "FORTIFY")
 #else
 #define ASSERT_FORTIFY(expr) ASSERT_EXIT(expr, testing::KilledBySignal(SIGABRT), "")
@@ -48,7 +41,7 @@
 #define DEATHTEST_EVALUATOR(name) DEATHTEST_PASTER(name)
 #define DEATHTEST DEATHTEST_EVALUATOR(TEST_NAME)
 
-class DEATHTEST : public BionicDeathTest {};
+using DEATHTEST = SilentDeathTest;
 
 #if defined(_FORTIFY_SOURCE) && _FORTIFY_SOURCE == 2
 struct foo {
@@ -212,8 +205,9 @@ TEST_F(DEATHTEST, memchr_fortified2) {
   foo myfoo;
   volatile int asize = sizeof(myfoo.a) + 1;
   memcpy(myfoo.a, "0123456789", sizeof(myfoo.a));
-  ASSERT_FORTIFY(printf("%s", memchr(myfoo.a, 'a', asize)));
-  ASSERT_FORTIFY(printf("%s", memchr(static_cast<const void*>(myfoo.a), 'a', asize)));
+  ASSERT_FORTIFY(printf("%s", static_cast<const char*>(memchr(myfoo.a, 'a', asize))));
+  ASSERT_FORTIFY(printf(
+      "%s", static_cast<const char*>(memchr(static_cast<const void*>(myfoo.a), 'a', asize))));
 #else // __BIONIC__
   GTEST_SKIP() << "glibc is broken";
 #endif // __BIONIC__
@@ -224,8 +218,9 @@ TEST_F(DEATHTEST, memrchr_fortified2) {
   foo myfoo;
   volatile int asize = sizeof(myfoo.a) + 1;
   memcpy(myfoo.a, "0123456789", sizeof(myfoo.a));
-  ASSERT_FORTIFY(printf("%s", memrchr(myfoo.a, 'a', asize)));
-  ASSERT_FORTIFY(printf("%s", memrchr(static_cast<const void*>(myfoo.a), 'a', asize)));
+  ASSERT_FORTIFY(printf("%s", static_cast<const char*>(memrchr(myfoo.a, 'a', asize))));
+  ASSERT_FORTIFY(printf(
+      "%s", static_cast<const char*>(memrchr(static_cast<const void*>(myfoo.a), 'a', asize))));
 #else // __BIONIC__
   GTEST_SKIP() << "glibc is broken";
 #endif // __BIONIC__
@@ -417,9 +412,6 @@ TEST_F(DEATHTEST, sprintf_fortified) {
   ASSERT_FORTIFY(sprintf(buf, "%s", source_buf));
 }
 
-#if !__has_attribute(alloc_size)
-// TODO: remove this after Clang prebuilt rebase.
-#else
 TEST_F(DEATHTEST, sprintf_malloc_fortified) {
   char* buf = (char *) malloc(10);
   char source_buf[11];
@@ -427,7 +419,6 @@ TEST_F(DEATHTEST, sprintf_malloc_fortified) {
   ASSERT_FORTIFY(sprintf(buf, "%s", source_buf));
   free(buf);
 }
-#endif
 
 TEST_F(DEATHTEST, sprintf2_fortified) {
   char buf[5];
@@ -673,6 +664,10 @@ TEST_F(DEATHTEST, readlinkat_fortified) {
   char buf[1];
   size_t ct = atoi("2"); // prevent optimizations
   ASSERT_FORTIFY(readlinkat(AT_FDCWD, "/dev/null", buf, ct));
+}
+
+TEST(TEST_NAME, snprintf_nullptr_valid) {
+  ASSERT_EQ(10, snprintf(nullptr, 0, "0123456789"));
 }
 
 extern "C" char* __strncat_chk(char*, const char*, size_t, size_t);
@@ -1015,7 +1010,7 @@ TEST_F(DEATHTEST, ppoll_fortified) {
 }
 
 TEST_F(DEATHTEST, ppoll64_fortified) {
-#if __BIONIC__ // glibc doesn't have ppoll64.
+#if defined(__BIONIC__)        // glibc doesn't have ppoll64.
   nfds_t fd_count = atoi("2"); // suppress compiler optimizations
   pollfd buf[1] = {{0, POLLIN, 0}};
   // Set timeout to zero to prevent waiting in ppoll when fortify test fails.
@@ -1031,8 +1026,6 @@ TEST_F(DEATHTEST, open_O_CREAT_without_mode_fortified) {
 }
 
 TEST_F(DEATHTEST, open_O_TMPFILE_without_mode_fortified) {
-#if __BIONIC__ // Our glibc is too old for O_TMPFILE.
   int flags = O_TMPFILE; // Fool the compiler.
   ASSERT_FORTIFY(open("", flags));
-#endif
 }

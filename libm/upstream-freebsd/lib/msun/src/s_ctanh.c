@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 David Schultz
  * All rights reserved.
@@ -65,9 +65,6 @@
  *   precision.  I also handle large x differently.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_ctanh.c 336362 2018-07-17 07:42:14Z bde $");
-
 #include <complex.h>
 #include <math.h>
 
@@ -111,11 +108,13 @@ ctanh(double complex z)
 	}
 
 	/*
-	 * ctanh(x + I NaN) = d(NaN) + I d(NaN)
-	 * ctanh(x +- I Inf) = dNaN + I dNaN
+	 * ctanh(+-0 + i NAN) = +-0 + i NaN
+	 * ctanh(+-0 +- i Inf) = +-0 + i NaN
+	 * ctanh(x + i NAN) = NaN + i NaN
+	 * ctanh(x +- i Inf) = NaN + i NaN
 	 */
 	if (!isfinite(y))
-		return (CMPLX(y - y, y - y));
+		return (CMPLX(x ? y - y : x, y - y));
 
 	/*
 	 * ctanh(+-huge +- I y) ~= +-1 +- I 2sin(2y)/exp(2x), using the

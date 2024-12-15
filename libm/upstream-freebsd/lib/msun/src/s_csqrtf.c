@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2007 David Schultz <das@FreeBSD.ORG>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_csqrtf.c 336412 2018-07-17 12:01:59Z bde $");
 
 #include <complex.h>
 #include <math.h>

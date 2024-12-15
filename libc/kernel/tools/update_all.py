@@ -1,11 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 #
-import sys, cpp, kernel, glob, os, re, getopt, clean_header, subprocess, shutil
+import sys, cpp, kernel, glob, os, re, getopt, clean_header, shutil
 from defaults import *
 from utils import *
 
 def Usage():
-    print """\
+    print("""\
   usage: %(progname)s [kernel-original-path] [kernel-modified-path]
 
     this program is used to update all the auto-generated clean headers
@@ -21,14 +21,20 @@ def Usage():
 
       - the clean headers will be placed in 'bionic/libc/kernel/arch-<arch>/asm',
         'bionic/libc/kernel/android', etc..
-""" % { "progname" : os.path.basename(sys.argv[0]) }
+""" % { "progname" : os.path.basename(sys.argv[0]) })
     sys.exit(0)
 
 def ProcessFiles(updater, original_dir, modified_dir, src_rel_dir, update_rel_dir):
     # Delete the old headers before updating to the new headers.
     update_dir = os.path.join(get_kernel_dir(), update_rel_dir)
-    shutil.rmtree(update_dir)
-    os.mkdir(update_dir, 0755)
+    for root, dirs, files in os.walk(update_dir, topdown=True):
+        for entry in files:
+            # BUILD is a special file that needs to be preserved.
+            if entry == "BUILD":
+                continue
+            os.remove(os.path.join(root, entry))
+        for entry in dirs:
+            shutil.rmtree(os.path.join(root, entry))
 
     src_dir = os.path.normpath(os.path.join(original_dir, src_rel_dir))
     src_dir_len = len(src_dir) + 1
@@ -62,7 +68,7 @@ def ProcessFiles(updater, original_dir, modified_dir, src_rel_dir, update_rel_di
             else:
                 state = "added"
             update_path = os.path.join(update_rel_dir, rel_path)
-            print "cleaning %s -> %s (%s)" % (src_str, update_path, state)
+            print("cleaning %s -> %s (%s)" % (src_str, update_path, state))
 
 
 # This lets us support regular system calls like __NR_write and also weird
@@ -84,9 +90,9 @@ def GenerateGlibcSyscallsHeader(updater):
     pattern = re.compile(r'^\s*#\s*define\s*__NR_([a-z_]\S+)')
     for unistd_h in ['kernel/uapi/asm-generic/unistd.h',
                      'kernel/uapi/asm-arm/asm/unistd.h',
-                     'kernel/uapi/asm-arm/asm/unistd-common.h',
                      'kernel/uapi/asm-arm/asm/unistd-eabi.h',
                      'kernel/uapi/asm-arm/asm/unistd-oabi.h',
+                     'kernel/uapi/asm-riscv/asm/unistd.h',
                      'kernel/uapi/asm-x86/asm/unistd_32.h',
                      'kernel/uapi/asm-x86/asm/unistd_64.h',
                      'kernel/uapi/asm-x86/asm/unistd_x32.h']:
@@ -149,9 +155,10 @@ ProcessFiles(updater, original_dir, modified_dir, "uapi", "uapi"),
 # Now process the special files.
 ProcessFiles(updater, original_dir, modified_dir, "scsi", os.path.join("android", "scsi", "scsi"))
 
-updater.updateGitFiles()
+# Copy all of the files.
+updater.updateFiles()
 
 # Now re-generate the <bits/glibc-syscalls.h> from the new uapi headers.
 updater = BatchFileUpdater()
 GenerateGlibcSyscallsHeader(updater)
-updater.updateGitFiles()
+updater.updateFiles()

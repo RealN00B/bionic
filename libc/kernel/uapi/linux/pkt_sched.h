@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef __LINUX_PKT_SCHED_H
 #define __LINUX_PKT_SCHED_H
 #include <linux/const.h>
@@ -167,6 +155,9 @@ enum {
   TCA_RED_PARMS,
   TCA_RED_STAB,
   TCA_RED_MAX_P,
+  TCA_RED_FLAGS,
+  TCA_RED_EARLY_DROP_BLOCK,
+  TCA_RED_MARK_BLOCK,
   __TCA_RED_MAX,
 };
 #define TCA_RED_MAX (__TCA_RED_MAX - 1)
@@ -181,7 +172,9 @@ struct tc_red_qopt {
 #define TC_RED_ECN 1
 #define TC_RED_HARDDROP 2
 #define TC_RED_ADAPTATIVE 4
+#define TC_RED_NODROP 8
 };
+#define TC_RED_HISTORIC_FLAGS (TC_RED_ECN | TC_RED_HARDDROP | TC_RED_ADAPTATIVE)
 struct tc_red_xstats {
   __u32 early;
   __u32 pdrop;
@@ -301,6 +294,7 @@ enum {
   TCA_HTB_RATE64,
   TCA_HTB_CEIL64,
   TCA_HTB_PAD,
+  TCA_HTB_OFFLOAD,
   __TCA_HTB_MAX,
 };
 #define TCA_HTB_MAX (__TCA_HTB_MAX - 1)
@@ -333,95 +327,6 @@ enum {
   __TCA_HFSC_MAX,
 };
 #define TCA_HFSC_MAX (__TCA_HFSC_MAX - 1)
-#define TC_CBQ_MAXPRIO 8
-#define TC_CBQ_MAXLEVEL 8
-#define TC_CBQ_DEF_EWMA 5
-struct tc_cbq_lssopt {
-  unsigned char change;
-  unsigned char flags;
-#define TCF_CBQ_LSS_BOUNDED 1
-#define TCF_CBQ_LSS_ISOLATED 2
-  unsigned char ewma_log;
-  unsigned char level;
-#define TCF_CBQ_LSS_FLAGS 1
-#define TCF_CBQ_LSS_EWMA 2
-#define TCF_CBQ_LSS_MAXIDLE 4
-#define TCF_CBQ_LSS_MINIDLE 8
-#define TCF_CBQ_LSS_OFFTIME 0x10
-#define TCF_CBQ_LSS_AVPKT 0x20
-  __u32 maxidle;
-  __u32 minidle;
-  __u32 offtime;
-  __u32 avpkt;
-};
-struct tc_cbq_wrropt {
-  unsigned char flags;
-  unsigned char priority;
-  unsigned char cpriority;
-  unsigned char __reserved;
-  __u32 allot;
-  __u32 weight;
-};
-struct tc_cbq_ovl {
-  unsigned char strategy;
-#define TC_CBQ_OVL_CLASSIC 0
-#define TC_CBQ_OVL_DELAY 1
-#define TC_CBQ_OVL_LOWPRIO 2
-#define TC_CBQ_OVL_DROP 3
-#define TC_CBQ_OVL_RCLASSIC 4
-  unsigned char priority2;
-  __u16 pad;
-  __u32 penalty;
-};
-struct tc_cbq_police {
-  unsigned char police;
-  unsigned char __res1;
-  unsigned short __res2;
-};
-struct tc_cbq_fopt {
-  __u32 split;
-  __u32 defmap;
-  __u32 defchange;
-};
-struct tc_cbq_xstats {
-  __u32 borrows;
-  __u32 overactions;
-  __s32 avgidle;
-  __s32 undertime;
-};
-enum {
-  TCA_CBQ_UNSPEC,
-  TCA_CBQ_LSSOPT,
-  TCA_CBQ_WRROPT,
-  TCA_CBQ_FOPT,
-  TCA_CBQ_OVL_STRATEGY,
-  TCA_CBQ_RATE,
-  TCA_CBQ_RTAB,
-  TCA_CBQ_POLICE,
-  __TCA_CBQ_MAX,
-};
-#define TCA_CBQ_MAX (__TCA_CBQ_MAX - 1)
-enum {
-  TCA_DSMARK_UNSPEC,
-  TCA_DSMARK_INDICES,
-  TCA_DSMARK_DEFAULT_INDEX,
-  TCA_DSMARK_SET_TC_INDEX,
-  TCA_DSMARK_MASK,
-  TCA_DSMARK_VALUE,
-  __TCA_DSMARK_MAX,
-};
-#define TCA_DSMARK_MAX (__TCA_DSMARK_MAX - 1)
-enum {
-  TCA_ATM_UNSPEC,
-  TCA_ATM_FD,
-  TCA_ATM_PTR,
-  TCA_ATM_HDR,
-  TCA_ATM_EXCESS,
-  TCA_ATM_ADDR,
-  TCA_ATM_STATE,
-  __TCA_ATM_MAX,
-};
-#define TCA_ATM_MAX (__TCA_ATM_MAX - 1)
 enum {
   TCA_NETEM_UNSPEC,
   TCA_NETEM_CORR,
@@ -437,6 +342,7 @@ enum {
   TCA_NETEM_JITTER64,
   TCA_NETEM_SLOT,
   TCA_NETEM_SLOT_DIST,
+  TCA_NETEM_PRNG_SEED,
   __TCA_NETEM_MAX,
 };
 #define TCA_NETEM_MAX (__TCA_NETEM_MAX - 1)
@@ -526,6 +432,10 @@ enum {
   __TC_MQPRIO_SHAPER_MAX
 };
 #define __TC_MQPRIO_SHAPER_MAX (__TC_MQPRIO_SHAPER_MAX - 1)
+enum {
+  TC_FP_EXPRESS = 1,
+  TC_FP_PREEMPTIBLE = 2,
+};
 struct tc_mqprio_qopt {
   __u8 num_tc;
   __u8 prio_tc_map[TC_QOPT_BITMASK + 1];
@@ -538,11 +448,19 @@ struct tc_mqprio_qopt {
 #define TC_MQPRIO_F_MIN_RATE 0x4
 #define TC_MQPRIO_F_MAX_RATE 0x8
 enum {
+  TCA_MQPRIO_TC_ENTRY_UNSPEC,
+  TCA_MQPRIO_TC_ENTRY_INDEX,
+  TCA_MQPRIO_TC_ENTRY_FP,
+  __TCA_MQPRIO_TC_ENTRY_CNT,
+  TCA_MQPRIO_TC_ENTRY_MAX = (__TCA_MQPRIO_TC_ENTRY_CNT - 1)
+};
+enum {
   TCA_MQPRIO_UNSPEC,
   TCA_MQPRIO_MODE,
   TCA_MQPRIO_SHAPER,
   TCA_MQPRIO_MIN_RATE64,
   TCA_MQPRIO_MAX_RATE64,
+  TCA_MQPRIO_TC_ENTRY,
   __TCA_MQPRIO_MAX,
 };
 #define TCA_MQPRIO_MAX (__TCA_MQPRIO_MAX - 1)
@@ -607,6 +525,7 @@ struct tc_codel_xstats {
   __u32 dropping;
   __u32 ce_mark;
 };
+#define FQ_CODEL_QUANTUM_MAX (1 << 20)
 enum {
   TCA_FQ_CODEL_UNSPEC,
   TCA_FQ_CODEL_TARGET,
@@ -618,6 +537,8 @@ enum {
   TCA_FQ_CODEL_CE_THRESHOLD,
   TCA_FQ_CODEL_DROP_BATCH_SIZE,
   TCA_FQ_CODEL_MEMORY_LIMIT,
+  TCA_FQ_CODEL_CE_THRESHOLD_SELECTOR,
+  TCA_FQ_CODEL_CE_THRESHOLD_MASK,
   __TCA_FQ_CODEL_MAX
 };
 #define TCA_FQ_CODEL_MAX (__TCA_FQ_CODEL_MAX - 1)
@@ -665,9 +586,16 @@ enum {
   TCA_FQ_ORPHAN_MASK,
   TCA_FQ_LOW_RATE_THRESHOLD,
   TCA_FQ_CE_THRESHOLD,
+  TCA_FQ_TIMER_SLACK,
+  TCA_FQ_HORIZON,
+  TCA_FQ_HORIZON_DROP,
+  TCA_FQ_PRIOMAP,
+  TCA_FQ_WEIGHTS,
   __TCA_FQ_MAX
 };
 #define TCA_FQ_MAX (__TCA_FQ_MAX - 1)
+#define FQ_BANDS 3
+#define FQ_MIN_WEIGHT 16384
 struct tc_fq_qd_stats {
   __u64 gc_flows;
   __u64 highprio_packets;
@@ -682,6 +610,12 @@ struct tc_fq_qd_stats {
   __u32 throttled_flows;
   __u32 unthrottle_latency_ns;
   __u64 ce_mark;
+  __u64 horizon_drops;
+  __u64 horizon_caps;
+  __u64 fastpath_packets;
+  __u64 band_drops[FQ_BANDS];
+  __u32 band_pkt_count[FQ_BANDS];
+  __u32 pad;
 };
 enum {
   TCA_HHF_UNSPEC,
@@ -710,6 +644,7 @@ enum {
   TCA_PIE_BETA,
   TCA_PIE_ECN,
   TCA_PIE_BYTEMODE,
+  TCA_PIE_DQ_RATE_ESTIMATOR,
   __TCA_PIE_MAX
 };
 #define TCA_PIE_MAX (__TCA_PIE_MAX - 1)
@@ -717,11 +652,40 @@ struct tc_pie_xstats {
   __u64 prob;
   __u32 delay;
   __u32 avg_dq_rate;
+  __u32 dq_rate_estimating;
   __u32 packets_in;
   __u32 dropped;
   __u32 overlimit;
   __u32 maxq;
   __u32 ecn_mark;
+};
+enum {
+  TCA_FQ_PIE_UNSPEC,
+  TCA_FQ_PIE_LIMIT,
+  TCA_FQ_PIE_FLOWS,
+  TCA_FQ_PIE_TARGET,
+  TCA_FQ_PIE_TUPDATE,
+  TCA_FQ_PIE_ALPHA,
+  TCA_FQ_PIE_BETA,
+  TCA_FQ_PIE_QUANTUM,
+  TCA_FQ_PIE_MEMORY_LIMIT,
+  TCA_FQ_PIE_ECN_PROB,
+  TCA_FQ_PIE_ECN,
+  TCA_FQ_PIE_BYTEMODE,
+  TCA_FQ_PIE_DQ_RATE_ESTIMATOR,
+  __TCA_FQ_PIE_MAX
+};
+#define TCA_FQ_PIE_MAX (__TCA_FQ_PIE_MAX - 1)
+struct tc_fq_pie_xstats {
+  __u32 packets_in;
+  __u32 dropped;
+  __u32 overlimit;
+  __u32 overmemory;
+  __u32 ecn_mark;
+  __u32 new_flow_count;
+  __u32 new_flows_len;
+  __u32 old_flows_len;
+  __u32 memory_usage;
 };
 struct tc_cbs_qopt {
   __u8 offload;
@@ -877,8 +841,23 @@ enum {
   __TCA_TAPRIO_SCHED_MAX,
 };
 #define TCA_TAPRIO_SCHED_MAX (__TCA_TAPRIO_SCHED_MAX - 1)
-#define TCA_TAPRIO_ATTR_FLAG_TXTIME_ASSIST BIT(0)
-#define TCA_TAPRIO_ATTR_FLAG_FULL_OFFLOAD BIT(1)
+#define TCA_TAPRIO_ATTR_FLAG_TXTIME_ASSIST _BITUL(0)
+#define TCA_TAPRIO_ATTR_FLAG_FULL_OFFLOAD _BITUL(1)
+enum {
+  TCA_TAPRIO_TC_ENTRY_UNSPEC,
+  TCA_TAPRIO_TC_ENTRY_INDEX,
+  TCA_TAPRIO_TC_ENTRY_MAX_SDU,
+  TCA_TAPRIO_TC_ENTRY_FP,
+  __TCA_TAPRIO_TC_ENTRY_CNT,
+  TCA_TAPRIO_TC_ENTRY_MAX = (__TCA_TAPRIO_TC_ENTRY_CNT - 1)
+};
+enum {
+  TCA_TAPRIO_OFFLOAD_STATS_PAD = 1,
+  TCA_TAPRIO_OFFLOAD_STATS_WINDOW_DROPS,
+  TCA_TAPRIO_OFFLOAD_STATS_TX_OVERRUNS,
+  __TCA_TAPRIO_OFFLOAD_STATS_CNT,
+  TCA_TAPRIO_OFFLOAD_STATS_MAX = (__TCA_TAPRIO_OFFLOAD_STATS_CNT - 1)
+};
 enum {
   TCA_TAPRIO_ATTR_UNSPEC,
   TCA_TAPRIO_ATTR_PRIOMAP,
@@ -892,7 +871,20 @@ enum {
   TCA_TAPRIO_ATTR_SCHED_CYCLE_TIME_EXTENSION,
   TCA_TAPRIO_ATTR_FLAGS,
   TCA_TAPRIO_ATTR_TXTIME_DELAY,
+  TCA_TAPRIO_ATTR_TC_ENTRY,
   __TCA_TAPRIO_ATTR_MAX,
 };
 #define TCA_TAPRIO_ATTR_MAX (__TCA_TAPRIO_ATTR_MAX - 1)
+#define TCQ_ETS_MAX_BANDS 16
+enum {
+  TCA_ETS_UNSPEC,
+  TCA_ETS_NBANDS,
+  TCA_ETS_NSTRICT,
+  TCA_ETS_QUANTA,
+  TCA_ETS_QUANTA_BAND,
+  TCA_ETS_PRIOMAP,
+  TCA_ETS_PRIOMAP_BAND,
+  __TCA_ETS_MAX,
+};
+#define TCA_ETS_MAX (__TCA_ETS_MAX - 1)
 #endif

@@ -14,10 +14,11 @@
  * limitations under the License.
  */
 
+#include <android/dlext.h>
 #include <dlfcn.h>
 #include <link.h>
+#include <signal.h>
 #include <stdlib.h>
-#include <android/dlext.h>
 
 // These functions are exported by the loader
 // TODO(dimitry): replace these with reference to libc.so
@@ -71,6 +72,9 @@ void* __loader_android_dlopen_ext(const char* filename,
 
 __attribute__((__weak__, visibility("default")))
 int __loader_android_get_application_target_sdk_version();
+
+__attribute__((__weak__, visibility("default"))) bool __loader_android_handle_signal(
+    int signal_number, siginfo_t* info, void* context);
 
 // Proxy calls to bionic loader
 __attribute__((__weak__))
@@ -138,16 +142,14 @@ int android_get_application_target_sdk_version() {
   return __loader_android_get_application_target_sdk_version();
 }
 
-#if defined(__arm__)
-// An arm32 unwinding table has an R_ARM_NONE relocation to
-// __aeabi_unwind_cpp_pr0. This shared library will never invoke the unwinder,
-// so it doesn't actually need the routine. Define a dummy version here,
-// because the real version calls libc functions (e.g. memcpy, abort), which
-// would create a dependency cycle with libc.so.
-__attribute__((visibility("hidden")))
-void __aeabi_unwind_cpp_pr0() {
-  __builtin_trap();
+// Returns true if this function handled the signal, false if the caller should handle the signal
+// itself. This function returns true if the sigchain handler should immediately return, which
+// happens when the signal came from GWP-ASan, and we've dumped a debuggerd report and patched up
+// the GWP-ASan allocator to recover from the fault, and regular execution of the program can
+// continue.
+__attribute__((__weak__)) bool android_handle_signal(int signal_number, siginfo_t* info,
+                                                     void* context) {
+  return __loader_android_handle_signal(signal_number, info, context);
 }
-#endif
 
 } // extern "C"

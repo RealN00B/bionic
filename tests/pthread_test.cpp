@@ -23,7 +23,9 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
+#include <sys/cdefs.h>
 #include <sys/mman.h>
+#include <sys/param.h>
 #include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/syscall.h>
@@ -38,12 +40,15 @@
 #include <android-base/macros.h>
 #include <android-base/parseint.h>
 #include <android-base/scopeguard.h>
+#include <android-base/silent_death_test.h>
 #include <android-base/strings.h>
+#include <android-base/test_utils.h>
 
 #include "private/bionic_constants.h"
-#include "BionicDeathTest.h"
 #include "SignalUtils.h"
 #include "utils.h"
+
+using pthread_DeathTest = SilentDeathTest;
 
 TEST(pthread, pthread_key_create) {
   pthread_key_t key;
@@ -179,6 +184,30 @@ TEST(pthread, pthread_key_dirty) {
 
   ASSERT_EQ(0, munmap(stack, stack_size));
   ASSERT_EQ(0, pthread_key_delete(key));
+}
+
+static void* FnWithStackFrame(void*) {
+  int x;
+  *const_cast<volatile int*>(&x) = 1;
+  return nullptr;
+}
+
+TEST(pthread, pthread_heap_allocated_stack) {
+  SKIP_WITH_HWASAN; // TODO(b/148982147): Re-enable when fixed.
+
+  size_t stack_size = 640 * 1024;
+  std::unique_ptr<char[]> stack(new (std::align_val_t(getpagesize())) char[stack_size]);
+  memset(stack.get(), '\xff', stack_size);
+
+  pthread_attr_t attr;
+  ASSERT_EQ(0, pthread_attr_init(&attr));
+  ASSERT_EQ(0, pthread_attr_setstack(&attr, stack.get(), stack_size));
+
+  pthread_t t;
+  ASSERT_EQ(0, pthread_create(&t, &attr, FnWithStackFrame, nullptr));
+
+  void* result;
+  ASSERT_EQ(0, pthread_join(t, &result));
 }
 
 TEST(pthread, static_pthread_key_used_before_creation) {
@@ -352,9 +381,6 @@ struct TestBug37410 {
 
 // Even though this isn't really a death test, we have to say "DeathTest" here so gtest knows to
 // run this test (which exits normally) in its own process.
-
-class pthread_DeathTest : public BionicDeathTest {};
-
 TEST_F(pthread_DeathTest, pthread_bug_37410) {
   // http://code.google.com/p/android/issues/detail?id=37410
   ASSERT_EXIT(TestBug37410::main(), ::testing::ExitedWithCode(0), "");
@@ -560,7 +586,7 @@ TEST(pthread, pthread_kill__exited_thread) {
   while (TEMP_FAILURE_RETRY(syscall(__NR_tgkill, getpid(), tid, 0)) != -1) {
     continue;
   }
-  ASSERT_EQ(ESRCH, errno);
+  ASSERT_ERRNO(ESRCH);
 
   ASSERT_EQ(ESRCH, pthread_kill(thread, 0));
 }
@@ -759,7 +785,7 @@ TEST(pthread, pthread_attr_setguardsize_tiny) {
   size_t guard_size;
   ASSERT_EQ(0, pthread_attr_getguardsize(&attributes, &guard_size));
   ASSERT_EQ(128U, guard_size);
-  ASSERT_EQ(4096U, GetActualGuardSize(attributes));
+  ASSERT_EQ(static_cast<unsigned long>(getpagesize()), GetActualGuardSize(attributes));
 }
 
 TEST(pthread, pthread_attr_setguardsize_reasonable) {
@@ -783,7 +809,7 @@ TEST(pthread, pthread_attr_setguardsize_needs_rounding) {
   size_t guard_size;
   ASSERT_EQ(0, pthread_attr_getguardsize(&attributes, &guard_size));
   ASSERT_EQ(32*1024U + 1, guard_size);
-  ASSERT_EQ(36*1024U, GetActualGuardSize(attributes));
+  ASSERT_EQ(roundup(32 * 1024U + 1, getpagesize()), GetActualGuardSize(attributes));
 }
 
 TEST(pthread, pthread_attr_setguardsize_enormous) {
@@ -845,6 +871,8 @@ TEST(pthread, pthread_rwlockattr_smoke) {
     ASSERT_EQ(pshared_value_array[i], pshared);
   }
 
+#if !defined(ANDROID_HOST_MUSL)
+  // musl doesn't have pthread_rwlockattr_setkind_np
   int kind_array[] = {PTHREAD_RWLOCK_PREFER_READER_NP,
                       PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP};
   for (size_t i = 0; i < sizeof(kind_array) / sizeof(kind_array[0]); ++i) {
@@ -853,6 +881,7 @@ TEST(pthread, pthread_rwlockattr_smoke) {
     ASSERT_EQ(0, pthread_rwlockattr_getkind_np(&attr, &kind));
     ASSERT_EQ(kind_array[i], kind);
   }
+#endif
 
   ASSERT_EQ(0, pthread_rwlockattr_destroy(&attr));
 }
@@ -1236,6 +1265,8 @@ TEST(pthread, pthread_rwlock_clockwrlock_invalid) {
 #endif  // __BIONIC__
 }
 
+#if !defined(ANDROID_HOST_MUSL)
+// musl doesn't have pthread_rwlockattr_setkind_np
 class RwlockKindTestHelper {
  private:
   struct ThreadArg {
@@ -1303,8 +1334,10 @@ class RwlockKindTestHelper {
     delete arg;
   }
 };
+#endif
 
 TEST(pthread, pthread_rwlock_kind_PTHREAD_RWLOCK_PREFER_READER_NP) {
+#if !defined(ANDROID_HOST_MUSL)
   RwlockKindTestHelper helper(PTHREAD_RWLOCK_PREFER_READER_NP);
   ASSERT_EQ(0, pthread_rwlock_rdlock(&helper.lock));
 
@@ -1320,9 +1353,13 @@ TEST(pthread, pthread_rwlock_kind_PTHREAD_RWLOCK_PREFER_READER_NP) {
 
   ASSERT_EQ(0, pthread_rwlock_unlock(&helper.lock));
   ASSERT_EQ(0, pthread_join(writer_thread, nullptr));
+#else
+  GTEST_SKIP() << "musl doesn't have pthread_rwlockattr_setkind_np";
+#endif
 }
 
 TEST(pthread, pthread_rwlock_kind_PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP) {
+#if !defined(ANDROID_HOST_MUSL)
   RwlockKindTestHelper helper(PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP);
   ASSERT_EQ(0, pthread_rwlock_rdlock(&helper.lock));
 
@@ -1339,6 +1376,9 @@ TEST(pthread, pthread_rwlock_kind_PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP) 
   ASSERT_EQ(0, pthread_rwlock_unlock(&helper.lock));
   ASSERT_EQ(0, pthread_join(writer_thread, nullptr));
   ASSERT_EQ(0, pthread_join(reader_thread, nullptr));
+#else
+  GTEST_SKIP() << "musl doesn't have pthread_rwlockattr_setkind_np";
+#endif
 }
 
 static int g_once_fn_call_count = 0;
@@ -1383,10 +1423,11 @@ static int g_atfork_child_calls = 0;
 static void AtForkChild1() { g_atfork_child_calls = (g_atfork_child_calls * 10) + 1; }
 static void AtForkChild2() { g_atfork_child_calls = (g_atfork_child_calls * 10) + 2; }
 
-TEST(pthread, pthread_atfork_smoke) {
+TEST(pthread, pthread_atfork_smoke_fork) {
   ASSERT_EQ(0, pthread_atfork(AtForkPrepare1, AtForkParent1, AtForkChild1));
   ASSERT_EQ(0, pthread_atfork(AtForkPrepare2, AtForkParent2, AtForkChild2));
 
+  g_atfork_prepare_calls = g_atfork_parent_calls = g_atfork_child_calls = 0;
   pid_t pid = fork();
   ASSERT_NE(-1, pid) << strerror(errno);
 
@@ -1400,6 +1441,44 @@ TEST(pthread, pthread_atfork_smoke) {
   // Prepare calls are made in the reverse order.
   ASSERT_EQ(21, g_atfork_prepare_calls);
   AssertChildExited(pid, 0);
+}
+
+TEST(pthread, pthread_atfork_smoke_vfork) {
+  ASSERT_EQ(0, pthread_atfork(AtForkPrepare1, AtForkParent1, AtForkChild1));
+  ASSERT_EQ(0, pthread_atfork(AtForkPrepare2, AtForkParent2, AtForkChild2));
+
+  g_atfork_prepare_calls = g_atfork_parent_calls = g_atfork_child_calls = 0;
+  pid_t pid = vfork();
+  ASSERT_NE(-1, pid) << strerror(errno);
+
+  // atfork handlers are not called.
+  if (pid == 0) {
+    ASSERT_EQ(0, g_atfork_child_calls);
+    _exit(0);
+  }
+  ASSERT_EQ(0, g_atfork_parent_calls);
+  ASSERT_EQ(0, g_atfork_prepare_calls);
+  AssertChildExited(pid, 0);
+}
+
+TEST(pthread, pthread_atfork_smoke__Fork) {
+#if defined(__BIONIC__)
+  ASSERT_EQ(0, pthread_atfork(AtForkPrepare1, AtForkParent1, AtForkChild1));
+  ASSERT_EQ(0, pthread_atfork(AtForkPrepare2, AtForkParent2, AtForkChild2));
+
+  g_atfork_prepare_calls = g_atfork_parent_calls = g_atfork_child_calls = 0;
+  pid_t pid = _Fork();
+  ASSERT_NE(-1, pid) << strerror(errno);
+
+  // atfork handlers are not called.
+  if (pid == 0) {
+    ASSERT_EQ(0, g_atfork_child_calls);
+    _exit(0);
+  }
+  ASSERT_EQ(0, g_atfork_parent_calls);
+  ASSERT_EQ(0, g_atfork_prepare_calls);
+  AssertChildExited(pid, 0);
+#endif
 }
 
 TEST(pthread, pthread_attr_getscope) {
@@ -1479,6 +1558,7 @@ class pthread_CondWakeupTest : public ::testing::Test {
   };
   std::atomic<Progress> progress;
   pthread_t thread;
+  timespec ts;
   std::function<int (pthread_cond_t* cond, pthread_mutex_t* mutex)> wait_function;
 
  protected:
@@ -1510,11 +1590,10 @@ class pthread_CondWakeupTest : public ::testing::Test {
       clockid_t clock,
       std::function<int(pthread_cond_t* cond, pthread_mutex_t* mutex, const timespec* timeout)>
           wait_function) {
-    timespec ts;
     ASSERT_EQ(0, clock_gettime(clock, &ts));
     ts.tv_sec += 1;
 
-    StartWaitingThread([&wait_function, &ts](pthread_cond_t* cond, pthread_mutex_t* mutex) {
+    StartWaitingThread([&wait_function, this](pthread_cond_t* cond, pthread_mutex_t* mutex) {
       return wait_function(cond, mutex, &ts);
     });
 
@@ -2153,6 +2232,9 @@ TEST(pthread, pthread_mutex_init_same_as_static_initializers) {
   ASSERT_EQ(0, memcmp(&lock_normal, &m1.lock, sizeof(pthread_mutex_t)));
   pthread_mutex_destroy(&lock_normal);
 
+#if !defined(ANDROID_HOST_MUSL)
+  // musl doesn't support PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP or
+  // PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP.
   pthread_mutex_t lock_errorcheck = PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP;
   PthreadMutex m2(PTHREAD_MUTEX_ERRORCHECK);
   ASSERT_EQ(0, memcmp(&lock_errorcheck, &m2.lock, sizeof(pthread_mutex_t)));
@@ -2162,6 +2244,7 @@ TEST(pthread, pthread_mutex_init_same_as_static_initializers) {
   PthreadMutex m3(PTHREAD_MUTEX_RECURSIVE);
   ASSERT_EQ(0, memcmp(&lock_recursive, &m3.lock, sizeof(pthread_mutex_t)));
   ASSERT_EQ(0, pthread_mutex_destroy(&lock_recursive));
+#endif
 }
 
 class MutexWakeupHelper {
@@ -2354,6 +2437,20 @@ static void pthread_mutex_timedlock_helper(clockid_t clock,
   ts.tv_sec = -1;
   ASSERT_EQ(ETIMEDOUT, lock_function(&m, &ts));
 
+  // check we wait long enough for the lock.
+  ASSERT_EQ(0, clock_gettime(clock, &ts));
+  const int64_t start_ns = ts.tv_sec * NS_PER_S + ts.tv_nsec;
+
+  // add a second to get deadline.
+  ts.tv_sec += 1;
+
+  ASSERT_EQ(ETIMEDOUT, lock_function(&m, &ts));
+
+  // The timedlock must have waited at least 1 second before returning.
+  clock_gettime(clock, &ts);
+  const int64_t end_ns = ts.tv_sec * NS_PER_S + ts.tv_nsec;
+  ASSERT_GT(end_ns - start_ns, NS_PER_S);
+
   // If the mutex is unlocked, pthread_mutex_timedlock should succeed.
   ASSERT_EQ(0, pthread_mutex_unlock(&m));
 
@@ -2399,7 +2496,11 @@ static void pthread_mutex_timedlock_pi_helper(clockid_t clock,
 
   timespec ts;
   clock_gettime(clock, &ts);
+  const int64_t start_ns = ts.tv_sec * NS_PER_S + ts.tv_nsec;
+
+  // add a second to get deadline.
   ts.tv_sec += 1;
+
   ASSERT_EQ(0, lock_function(&m.lock, &ts));
 
   struct ThreadArgs {
@@ -2428,6 +2529,12 @@ static void pthread_mutex_timedlock_pi_helper(clockid_t clock,
   void* result;
   ASSERT_EQ(0, pthread_join(thread, &result));
   ASSERT_EQ(ETIMEDOUT, reinterpret_cast<intptr_t>(result));
+
+  // The timedlock must have waited at least 1 second before returning.
+  clock_gettime(clock, &ts);
+  const int64_t end_ns = ts.tv_sec * NS_PER_S + ts.tv_nsec;
+  ASSERT_GT(end_ns - start_ns, NS_PER_S);
+
   ASSERT_EQ(0, pthread_mutex_unlock(&m.lock));
 }
 
@@ -2468,7 +2575,7 @@ TEST(pthread, pthread_mutex_clocklock_invalid) {
 #endif  // __BIONIC__
 }
 
-TEST(pthread, pthread_mutex_using_destroyed_mutex) {
+TEST_F(pthread_DeathTest, pthread_mutex_using_destroyed_mutex) {
 #if defined(__BIONIC__)
   pthread_mutex_t m;
   ASSERT_EQ(0, pthread_mutex_init(&m, nullptr));
@@ -2821,6 +2928,9 @@ TEST(pthread, pthread_attr_getdetachstate__pthread_attr_setdetachstate) {
 }
 
 TEST(pthread, pthread_create__mmap_failures) {
+  // After thread is successfully created, native_bridge might need more memory to run it.
+  SKIP_WITH_NATIVE_BRIDGE;
+
   pthread_attr_t attr;
   ASSERT_EQ(0, pthread_attr_init(&attr));
   ASSERT_EQ(0, pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED));
@@ -2971,4 +3081,49 @@ TEST(pthread, pthread_attr_setinheritsched__takes_effect_despite_SCHED_RESET_ON_
   ASSERT_EQ(SCHED_FIFO  | SCHED_RESET_ON_FORK, actual_policy);
   spin_helper.UnSpin();
   ASSERT_EQ(0, pthread_join(t, nullptr));
+}
+
+extern "C" bool android_run_on_all_threads(bool (*func)(void*), void* arg);
+
+TEST(pthread, run_on_all_threads) {
+#if defined(__BIONIC__)
+  pthread_t t;
+  ASSERT_EQ(
+      0, pthread_create(
+             &t, nullptr,
+             [](void*) -> void* {
+               pthread_attr_t detached;
+               if (pthread_attr_init(&detached) != 0 ||
+                   pthread_attr_setdetachstate(&detached, PTHREAD_CREATE_DETACHED) != 0) {
+                 return reinterpret_cast<void*>(errno);
+               }
+
+               for (int i = 0; i != 1000; ++i) {
+                 pthread_t t1, t2;
+                 if (pthread_create(
+                         &t1, &detached, [](void*) -> void* { return nullptr; }, nullptr) != 0 ||
+                     pthread_create(
+                         &t2, nullptr, [](void*) -> void* { return nullptr; }, nullptr) != 0 ||
+                     pthread_join(t2, nullptr) != 0) {
+                   return reinterpret_cast<void*>(errno);
+                 }
+               }
+
+               if (pthread_attr_destroy(&detached) != 0) {
+                 return reinterpret_cast<void*>(errno);
+               }
+               return nullptr;
+             },
+             nullptr));
+
+  for (int i = 0; i != 1000; ++i) {
+    ASSERT_TRUE(android_run_on_all_threads([](void* arg) { return arg == nullptr; }, nullptr));
+  }
+
+  void *retval;
+  ASSERT_EQ(0, pthread_join(t, &retval));
+  ASSERT_EQ(nullptr, retval);
+#else
+  GTEST_SKIP() << "bionic-only test";
+#endif
 }

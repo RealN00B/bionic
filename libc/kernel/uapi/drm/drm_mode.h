@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _DRM_MODE_H
 #define _DRM_MODE_H
 #include "drm.h"
@@ -73,12 +61,7 @@ extern "C" {
 #define DRM_MODE_FLAG_PIC_AR_16_9 (DRM_MODE_PICTURE_ASPECT_16_9 << 19)
 #define DRM_MODE_FLAG_PIC_AR_64_27 (DRM_MODE_PICTURE_ASPECT_64_27 << 19)
 #define DRM_MODE_FLAG_PIC_AR_256_135 (DRM_MODE_PICTURE_ASPECT_256_135 << 19)
-#define DRM_MODE_FLAG_SUPPORTS_RGB (1 << 27)
-#define DRM_MODE_FLAG_SUPPORTS_YUV (1 << 28)
-#define DRM_MODE_FLAG_VID_MODE_PANEL (1 << 29)
-#define DRM_MODE_FLAG_CMD_MODE_PANEL (1 << 30)
-#define DRM_MODE_FLAG_SEAMLESS (1 << 31)
-#define DRM_MODE_FLAG_ALL (DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLSCAN | DRM_MODE_FLAG_CSYNC | DRM_MODE_FLAG_PCSYNC | DRM_MODE_FLAG_NCSYNC | DRM_MODE_FLAG_HSKEW | DRM_MODE_FLAG_DBLCLK | DRM_MODE_FLAG_CLKDIV2 | DRM_MODE_FLAG_SUPPORTS_RGB | DRM_MODE_FLAG_SUPPORTS_YUV | DRM_MODE_FLAG_VID_MODE_PANEL | DRM_MODE_FLAG_CMD_MODE_PANEL | DRM_MODE_FLAG_3D_MASK)
+#define DRM_MODE_FLAG_ALL (DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NHSYNC | DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_NVSYNC | DRM_MODE_FLAG_INTERLACE | DRM_MODE_FLAG_DBLSCAN | DRM_MODE_FLAG_CSYNC | DRM_MODE_FLAG_PCSYNC | DRM_MODE_FLAG_NCSYNC | DRM_MODE_FLAG_HSKEW | DRM_MODE_FLAG_DBLCLK | DRM_MODE_FLAG_CLKDIV2 | DRM_MODE_FLAG_3D_MASK)
 #define DRM_MODE_DPMS_ON 0
 #define DRM_MODE_DPMS_STANDBY 1
 #define DRM_MODE_DPMS_SUSPEND 2
@@ -196,12 +179,17 @@ struct drm_mode_get_encoder {
 enum drm_mode_subconnector {
   DRM_MODE_SUBCONNECTOR_Automatic = 0,
   DRM_MODE_SUBCONNECTOR_Unknown = 0,
+  DRM_MODE_SUBCONNECTOR_VGA = 1,
   DRM_MODE_SUBCONNECTOR_DVID = 3,
   DRM_MODE_SUBCONNECTOR_DVIA = 4,
   DRM_MODE_SUBCONNECTOR_Composite = 5,
   DRM_MODE_SUBCONNECTOR_SVIDEO = 6,
   DRM_MODE_SUBCONNECTOR_Component = 8,
   DRM_MODE_SUBCONNECTOR_SCART = 9,
+  DRM_MODE_SUBCONNECTOR_DisplayPort = 10,
+  DRM_MODE_SUBCONNECTOR_HDMIA = 11,
+  DRM_MODE_SUBCONNECTOR_Native = 15,
+  DRM_MODE_SUBCONNECTOR_Wireless = 18,
 };
 #define DRM_MODE_CONNECTOR_Unknown 0
 #define DRM_MODE_CONNECTOR_VGA 1
@@ -223,6 +211,7 @@ enum drm_mode_subconnector {
 #define DRM_MODE_CONNECTOR_DPI 17
 #define DRM_MODE_CONNECTOR_WRITEBACK 18
 #define DRM_MODE_CONNECTOR_SPI 19
+#define DRM_MODE_CONNECTOR_USB 20
 struct drm_mode_get_connector {
   __u64 encoders_ptr;
   __u64 modes_ptr;
@@ -309,7 +298,6 @@ struct drm_mode_fb_cmd {
 };
 #define DRM_MODE_FB_INTERLACED (1 << 0)
 #define DRM_MODE_FB_MODIFIERS (1 << 1)
-#define DRM_MODE_FB_SECURE (1 << 2)
 struct drm_mode_fb_cmd2 {
   __u32 fb_id;
   __u32 width;
@@ -369,11 +357,18 @@ struct drm_mode_crtc_lut {
 struct drm_color_ctm {
   __u64 matrix[9];
 };
+struct drm_color_ctm_3x4 {
+  __u64 matrix[12];
+};
 struct drm_color_lut {
   __u16 red;
   __u16 green;
   __u16 blue;
   __u16 reserved;
+};
+struct drm_plane_size_hint {
+  __u16 width;
+  __u16 height;
 };
 struct hdr_metadata_infoframe {
   __u8 eotf;
@@ -494,6 +489,10 @@ struct drm_mode_rect {
   __s32 y1;
   __s32 x2;
   __s32 y2;
+};
+struct drm_mode_closefb {
+  __u32 fb_id;
+  __u32 pad;
 };
 #ifdef __cplusplus
 }

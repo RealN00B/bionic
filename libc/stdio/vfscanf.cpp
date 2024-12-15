@@ -31,52 +31,7 @@
  * SUCH DAMAGE.
  */
 
-#include <inttypes.h>
-#include <stdarg.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/param.h>
-#include <wctype.h>
-#include "local.h"
-
-#include <private/bionic_ctype.h>
-#include <private/bionic_fortify.h>
-#include <platform/bionic/macros.h>
-#include <private/bionic_mbstate.h>
-
-#define BUF 513 /* Maximum length of numeric string. */
-
-// Flags used during conversion.
-// Size/type:
-#define LONG       0x00001 // l: long or double
-#define LONGDBL    0x00002 // L: long double
-#define SHORT      0x00004 // h: short
-#define SHORTSHORT 0x00008 // hh: 8 bit integer
-#define LLONG      0x00010 // ll: long long (+ deprecated q: quad)
-#define POINTER    0x00020 // p: void* (as hex)
-#define SIZEINT    0x00040 // z: (signed) size_t
-#define MAXINT     0x00080 // j: intmax_t
-#define PTRINT     0x00100 // t: ptrdiff_t
-#define NOSKIP     0x00200 // [ or c: do not skip blanks
-// Modifiers:
-#define SUPPRESS   0x00400 // *: suppress assignment
-#define UNSIGNED   0x00800 // %[oupxX] conversions
-#define ALLOCATE   0x01000 // m: allocate a char*
-// Internal use during integer parsing:
-#define SIGNOK     0x02000 // +/- is (still) legal
-#define HAVESIGN   0x04000 // Sign detected
-#define NDIGITS    0x08000 // No digits detected
-#define PFXOK      0x10000 // "0x" prefix is (still) legal
-#define NZDIGITS   0x20000 // No zero digits detected
-
-// Conversion types.
-#define CT_CHAR 0   // %c conversion
-#define CT_CCL 1    // %[...] conversion
-#define CT_STRING 2 // %s conversion
-#define CT_INT 3    // Integer: strtoimax/strtoumax
-#define CT_FLOAT 4  // Float: strtod
+#include "scanf_common.h"
 
 static const unsigned char* __sccl(char*, const unsigned char*);
 
@@ -101,18 +56,15 @@ int __svfscanf(FILE* fp, const char* fmt0, va_list ap) {
   void* allocation = nullptr; // Allocated but unassigned result for %mc/%ms/%m[.
   size_t capacity = 0; // Number of char/wchar_t units allocated in `allocation`.
 
-  /* `basefix' is used to avoid `if' tests in the integer scanner */
-  static short basefix[17] = { 10, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16 };
-
-  _SET_ORIENTATION(fp, -1);
+  _SET_ORIENTATION(fp, ORIENT_BYTES);
 
   nassigned = 0;
   nread = 0;
   for (;;) {
     c = *fmt++;
     if (c == 0) return nassigned;
-    if (IsSpace(c)) {
-      while ((fp->_r > 0 || __srefill(fp) == 0) && IsSpace(*fp->_p)) nread++, fp->_r--, fp->_p++;
+    if (isspace(c)) {
+      while ((fp->_r > 0 || __srefill(fp) == 0) && isspace(*fp->_p)) nread++, fp->_r--, fp->_p++;
       continue;
     }
     if (c != '%') goto literal;
@@ -124,6 +76,7 @@ int __svfscanf(FILE* fp, const char* fmt0, va_list ap) {
      */
 again:
     c = *fmt++;
+reswitch:
     switch (c) {
       case '%':
 literal:
@@ -188,6 +141,12 @@ literal:
        * Conversions.
        * Those marked `compat' are for 4.[123]BSD compatibility.
        */
+      case 'b':
+        c = CT_INT;
+        base = 2;
+        flags |= PFBOK; /* enable 0b prefixing */
+        break;
+
       case 'D': /* compat */
         flags |= LONG;
         __BIONIC_FALLTHROUGH;
@@ -215,6 +174,22 @@ literal:
         flags |= UNSIGNED;
         base = 10;
         break;
+
+      case 'w': {
+        int size = 0;
+        bool fast = false;
+        c = *fmt++;
+        if (c == 'f') {
+          fast = true;
+          c = *fmt++;
+        }
+        while (is_digit(c)) {
+          APPEND_DIGIT(size, c);
+          c = *fmt++;
+        }
+        flags |= w_to_flag(size, fast);
+        goto reswitch;
+      }
 
       case 'X':
       case 'x':
@@ -287,7 +262,7 @@ literal:
         return EOF;
 
       default: /* compat */
-        if (IsUpper(c)) flags |= LONG;
+        if (isupper(c)) flags |= LONG;
         c = CT_INT;
         base = 10;
         break;
@@ -310,7 +285,7 @@ literal:
      * that suppress this.
      */
     if ((flags & NOSKIP) == 0) {
-      while (IsSpace(*fp->_p)) {
+      while (isspace(*fp->_p)) {
         nread++;
         if (--fp->_r > 0) {
           fp->_p++;
@@ -352,12 +327,12 @@ literal:
             fp->_r--;
             memset(&mbs, 0, sizeof(mbs));
             nconv = mbrtowc(wcp, buf, bytes, &mbs);
-            if (nconv == __MB_ERR_ILLEGAL_SEQUENCE) {
+            if (nconv == BIONIC_MULTIBYTE_RESULT_ILLEGAL_SEQUENCE) {
               fp->_flags |= __SERR;
               goto input_failure;
             }
             if (nconv == 0 && !(flags & SUPPRESS)) *wcp = L'\0';
-            if (nconv != __MB_ERR_INCOMPLETE_SEQUENCE) {
+            if (nconv != BIONIC_MULTIBYTE_RESULT_INCOMPLETE_SEQUENCE) {
               nread += bytes;
               width--;
               if (!(flags & SUPPRESS)) wcp++;
@@ -431,7 +406,7 @@ literal:
             wcp = va_arg(ap, wchar_t*);
           }
           size_t bytes = 0;
-          while ((c == CT_CCL || !IsSpace(*fp->_p)) && width != 0) {
+          while ((c == CT_CCL || !isspace(*fp->_p)) && width != 0) {
             if (bytes == MB_CUR_MAX) {
               fp->_flags |= __SERR;
               goto input_failure;
@@ -442,11 +417,11 @@ literal:
             wchar_t wc = L'\0';
             memset(&mbs, 0, sizeof(mbs));
             nconv = mbrtowc(&wc, buf, bytes, &mbs);
-            if (nconv == __MB_ERR_ILLEGAL_SEQUENCE) {
+            if (nconv == BIONIC_MULTIBYTE_RESULT_ILLEGAL_SEQUENCE) {
               fp->_flags |= __SERR;
               goto input_failure;
             }
-            if (nconv != __MB_ERR_INCOMPLETE_SEQUENCE) {
+            if (nconv != BIONIC_MULTIBYTE_RESULT_INCOMPLETE_SEQUENCE) {
               if ((c == CT_CCL && wctob(wc) != EOF && !ccltab[wctob(wc)]) || (c == CT_STRING && iswspace(wc))) {
                 while (bytes != 0) {
                   bytes--;
@@ -558,7 +533,7 @@ literal:
              * digits (zero or nonzero) have been
              * scanned (only signs), we will have
              * base==0.  In that case, we should set
-             * it to 8 and enable 0x prefixing.
+             * it to 8 and enable 0b/0x prefixing.
              * Also, if we have not scanned zero digits
              * before this, do not turn off prefixing
              * (someone else will turn it off if we
@@ -567,15 +542,24 @@ literal:
             case '0':
               if (base == 0) {
                 base = 8;
-                flags |= PFXOK;
+                flags |= PFBOK | PFXOK;
               }
-              if (flags & NZDIGITS)
+              if (flags & NZDIGITS) {
                 flags &= ~(SIGNOK | NZDIGITS | NDIGITS);
-              else
-                flags &= ~(SIGNOK | PFXOK | NDIGITS);
+              } else {
+                flags &= ~(SIGNOK | PFBOK | PFXOK | NDIGITS);
+              }
               goto ok;
-
-            /* 1 through 7 always legal */
+            case 'B':
+            case 'b':
+              // Is this 'b' or 'B' potentially part of an "0b" prefix?
+              if ((flags & PFBOK) && p == buf + 1 + !!(flags & HAVESIGN)) {
+                base = 2;
+                flags &= ~PFBOK;
+                goto ok;
+              }
+              // No? Fall through and see if it's a hex digit instead then...
+              __BIONIC_FALLTHROUGH;
             case '1':
             case '2':
             case '3':
@@ -583,34 +567,21 @@ literal:
             case '5':
             case '6':
             case '7':
-              base = basefix[base];
-              flags &= ~(SIGNOK | PFXOK | NDIGITS);
-              goto ok;
-
-            /* digits 8 and 9 ok iff decimal or hex */
             case '8':
             case '9':
-              base = basefix[base];
-              if (base <= 8) break; /* not legal here */
-              flags &= ~(SIGNOK | PFXOK | NDIGITS);
-              goto ok;
-
-            /* letters ok iff hex */
             case 'A':
-            case 'B':
             case 'C':
             case 'D':
             case 'E':
             case 'F':
             case 'a':
-            case 'b':
             case 'c':
             case 'd':
             case 'e':
             case 'f':
-              /* no need to fix base here */
-              if (base <= 10) break; /* not legal here */
-              flags &= ~(SIGNOK | PFXOK | NDIGITS);
+              if (base == 0) base = 10;
+              if (base != 16 && (c - '0') >= base) break; /* not legal here */
+              flags &= ~(SIGNOK | PFBOK | PFXOK | NDIGITS);
               goto ok;
 
             /* sign ok only as first character */
@@ -653,17 +624,16 @@ literal:
             break; /* EOF */
         }
         /*
-         * If we had only a sign, it is no good; push
-         * back the sign.  If the number ends in `x',
-         * it was [sign] '0' 'x', so push back the x
-         * and treat it as [sign] '0'.
+         * If we had only a sign, it is no good; push back the sign.
+         * If the number was `[-+]0[BbXx]`, push back and treat it
+         * as `[-+]0`.
          */
         if (flags & NDIGITS) {
-          if (p > buf) (void)ungetc(*(u_char*)--p, fp);
+          if (p > buf) ungetc(*reinterpret_cast<u_char*>(--p), fp);
           goto match_failure;
         }
-        c = ((u_char*)p)[-1];
-        if (c == 'x' || c == 'X') {
+        c = reinterpret_cast<u_char*>(p)[-1];
+        if ((base == 2 && (c == 'b' || c == 'B')) || c == 'x' || c == 'X') {
           --p;
           (void)ungetc(c, fp);
         }
@@ -677,7 +647,7 @@ literal:
             res = strtoimax(buf, nullptr, base);
           }
           if (flags & POINTER) {
-            *va_arg(ap, void**) = (void*)(uintptr_t)res;
+            *va_arg(ap, void**) = reinterpret_cast<void*>(res);
           } else if (flags & MAXINT) {
             *va_arg(ap, intmax_t*) = res;
           } else if (flags & LLONG) {
@@ -715,7 +685,7 @@ literal:
             float res = strtof(buf, &p);
             *va_arg(ap, float*) = res;
           }
-          if ((size_t)(p - buf) != width) abort();
+          if (static_cast<size_t>(p - buf) != width) abort();
           nassigned++;
         }
         nread += width;

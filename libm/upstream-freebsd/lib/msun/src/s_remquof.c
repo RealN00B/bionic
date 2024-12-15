@@ -1,4 +1,3 @@
-/* @(#)e_fmod.c 1.3 95/01/18 */
 /*-
  * ====================================================
  * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
@@ -9,9 +8,6 @@
  * is preserved.
  * ====================================================
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_remquof.c 336663 2018-07-24 10:10:16Z bde $");
 
 #include "math.h"
 #include "math_private.h"

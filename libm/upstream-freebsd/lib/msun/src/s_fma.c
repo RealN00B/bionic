@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005-2011 David Schultz <das@FreeBSD.ORG>
  * All rights reserved.
@@ -26,15 +26,19 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_fma.c 326219 2017-11-26 02:00:33Z pfg $");
-
 #include <fenv.h>
 #include <float.h>
 #include <math.h>
 
 #include "math_private.h"
 
+#ifdef USE_BUILTIN_FMA
+double
+fma(double x, double y, double z)
+{
+	return (__builtin_fma(x, y, z));
+}
+#else
 /*
  * A struct dd represents a floating-point number with twice the precision
  * of a double.  We maintain the invariant that "hi" stores the 53 high-order
@@ -218,17 +222,17 @@ fma(double x, double y, double z)
 		case FE_TONEAREST:
 			return (z);
 		case FE_TOWARDZERO:
-			if (x > 0.0 ^ y < 0.0 ^ z < 0.0)
+			if ((x > 0.0) ^ (y < 0.0) ^ (z < 0.0))
 				return (z);
 			else
 				return (nextafter(z, 0));
 		case FE_DOWNWARD:
-			if (x > 0.0 ^ y < 0.0)
+			if ((x > 0.0) ^ (y < 0.0))
 				return (z);
 			else
 				return (nextafter(z, -INFINITY));
 		default:	/* FE_UPWARD */
-			if (x > 0.0 ^ y < 0.0)
+			if ((x > 0.0) ^ (y < 0.0))
 				return (nextafter(z, INFINITY));
 			else
 				return (z);
@@ -240,7 +244,7 @@ fma(double x, double y, double z)
 		zs = copysign(DBL_MIN, zs);
 
 	fesetround(FE_TONEAREST);
-	/* work around clang bug 8100 */
+	/* work around clang issue #8472 */
 	volatile double vxs = xs;
 
 	/*
@@ -256,14 +260,14 @@ fma(double x, double y, double z)
 
 	spread = ex + ey;
 
-	if (r.hi == 0.0) {
+	if (r.hi == 0.0 && xy.lo == 0) {
 		/*
 		 * When the addends cancel to 0, ensure that the result has
 		 * the correct sign.
 		 */
 		fesetround(oround);
 		volatile double vzs = zs; /* XXX gcc CSE bug workaround */
-		return (xy.hi + vzs + ldexp(xy.lo, spread));
+		return (xy.hi + vzs);
 	}
 
 	if (oround != FE_TONEAREST) {
@@ -272,7 +276,7 @@ fma(double x, double y, double z)
 		 * rounding modes.
 		 */
 		fesetround(oround);
-		/* work around clang bug 8100 */
+		/* work around clang issue #8472 */
 		volatile double vrlo = r.lo;
 		adj = vrlo + xy.lo;
 		return (ldexp(r.hi + adj, spread));
@@ -284,6 +288,7 @@ fma(double x, double y, double z)
 	else
 		return (add_and_denormalize(r.hi, adj, spread));
 }
+#endif /* !USE_BUILTIN_FMA */
 
 #if (LDBL_MANT_DIG == 53)
 __weak_reference(fma, fmal);

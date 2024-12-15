@@ -23,11 +23,13 @@
 #include <malloc.h>
 #include <math.h>
 #include <stdint.h>
+#include <sys/cdefs.h>
 
 #include <algorithm>
 #include <vector>
 
 #include "buffer_tests.h"
+#include "utils.h"
 
 #if defined(NOFORTIFY)
 #define STRING_TEST string_nofortify
@@ -64,6 +66,11 @@ TEST(STRING_TEST, strerror) {
   ASSERT_STREQ("Unknown error 134", strerror(EHWPOISON + 1));
 }
 
+TEST(STRING_TEST, strerror_l) {
+  // bionic just forwards to strerror(3).
+  ASSERT_STREQ("Success", strerror_l(0, LC_GLOBAL_LOCALE));
+}
+
 #if defined(__BIONIC__)
 static void* ConcurrentStrErrorFn(void*) {
   bool equal = (strcmp("Unknown error 2002", strerror(2002)) == 0);
@@ -90,6 +97,7 @@ TEST(STRING_TEST, strerror_concurrent) {
 }
 
 TEST(STRING_TEST, gnu_strerror_r) {
+#if !defined(ANDROID_HOST_MUSL)
   char buf[256];
 
   // Note that glibc doesn't necessarily write into the buffer.
@@ -116,7 +124,10 @@ TEST(STRING_TEST, gnu_strerror_r) {
   ASSERT_EQ(buf, strerror_r(4567, buf, 2));
   ASSERT_STREQ("U", buf);
   // The GNU strerror_r doesn't set errno (the POSIX one sets it to ERANGE).
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
+#else
+  GTEST_SKIP() << "musl doesn't have GNU strerror_r";
+#endif
 }
 
 TEST(STRING_TEST, strsignal) {
@@ -126,7 +137,7 @@ TEST(STRING_TEST, strsignal) {
   // A real-time signal.
   ASSERT_STREQ("Real-time signal 14", strsignal(SIGRTMIN + 14));
   // One of the signals the C library keeps to itself.
-  ASSERT_STREQ("Unknown signal 32", strsignal(__SIGRTMIN));
+  ASSERT_STREQ("Unknown signal 32", strsignal(32));  // __SIGRTMIN
 
   // Errors.
   ASSERT_STREQ("Unknown signal -1", strsignal(-1)); // Too small.
@@ -308,33 +319,34 @@ TEST(STRING_TEST, strcpy4) {
 // one byte target with "\0" source
 TEST(STRING_TEST, stpcpy2) {
   char buf[1];
+  memset(buf, 'A', sizeof(buf));
   char* orig = strdup("");
-  ASSERT_EQ(buf, stpcpy(buf, orig));
-  ASSERT_EQ('\0', buf[0]);
+  EXPECT_EQ(buf, stpcpy(buf, orig));
+  EXPECT_EQ('\0', buf[0]);
   free(orig);
 }
 
 // multibyte target where we under fill target
 TEST(STRING_TEST, stpcpy3) {
   char buf[10];
-  char* orig = strdup("12345");
   memset(buf, 'A', sizeof(buf));
-  ASSERT_EQ(buf+strlen(orig), stpcpy(buf, orig));
-  ASSERT_STREQ("12345", buf);
-  ASSERT_EQ('A',  buf[6]);
-  ASSERT_EQ('A',  buf[7]);
-  ASSERT_EQ('A',  buf[8]);
-  ASSERT_EQ('A',  buf[9]);
+  char* orig = strdup("12345");
+  EXPECT_EQ(buf+strlen(orig), stpcpy(buf, orig));
+  EXPECT_STREQ("12345", buf);
+  EXPECT_EQ('A',  buf[6]);
+  EXPECT_EQ('A',  buf[7]);
+  EXPECT_EQ('A',  buf[8]);
+  EXPECT_EQ('A',  buf[9]);
   free(orig);
 }
 
 // multibyte target where we fill target exactly
 TEST(STRING_TEST, stpcpy4) {
   char buf[10];
-  char* orig = strdup("123456789");
   memset(buf, 'A', sizeof(buf));
-  ASSERT_EQ(buf+strlen(orig), stpcpy(buf, orig));
-  ASSERT_STREQ("123456789", buf);
+  char* orig = strdup("123456789");
+  EXPECT_EQ(buf+strlen(orig), stpcpy(buf, orig));
+  EXPECT_STREQ("123456789", buf);
   free(orig);
 }
 
@@ -1468,14 +1480,17 @@ TEST(STRING_TEST, strrchr_overread) {
   RunSingleBufferOverreadTest(DoStrrchrTest);
 }
 
+#if !defined(ANDROID_HOST_MUSL)
 static void TestBasename(const char* in, const char* expected_out) {
   errno = 0;
   const char* out = basename(in);
   ASSERT_STREQ(expected_out, out) << in;
-  ASSERT_EQ(0, errno) << in;
+  ASSERT_ERRNO(0) << in;
 }
+#endif
 
 TEST(STRING_TEST, __gnu_basename) {
+#if !defined(ANDROID_HOST_MUSL)
   TestBasename("", "");
   TestBasename("/usr/lib", "lib");
   TestBasename("/usr/", "");
@@ -1485,6 +1500,9 @@ TEST(STRING_TEST, __gnu_basename) {
   TestBasename("..", "..");
   TestBasename("///", "");
   TestBasename("//usr//lib//", "");
+#else
+  GTEST_SKIP() << "musl doesn't have GNU basename";
+#endif
 }
 
 TEST(STRING_TEST, strnlen_147048) {
@@ -1538,13 +1556,31 @@ TEST(STRING_TEST, memmem_strstr_empty_needle) {
 }
 
 TEST(STRING_TEST, memmem_smoke) {
-  const char haystack[] = "big\0daddy\0giant\0haystacks";
-  ASSERT_EQ(haystack, memmem(haystack, sizeof(haystack), "", 0));
-  ASSERT_EQ(haystack + 3, memmem(haystack, sizeof(haystack), "", 1));
+  const char haystack[] = "big\0daddy/giant\0haystacks!";
+
+  // The current memmem() implementation has special cases for needles of
+  // lengths 0, 1, 2, 3, and 4, plus a long needle case. We test matches at the
+  // beginning, middle, and end of the haystack.
+
+  ASSERT_EQ(haystack + 0, memmem(haystack, sizeof(haystack), "", 0));
+
   ASSERT_EQ(haystack + 0, memmem(haystack, sizeof(haystack), "b", 1));
-  ASSERT_EQ(haystack + 1, memmem(haystack, sizeof(haystack), "i", 1));
-  ASSERT_EQ(haystack + 4, memmem(haystack, sizeof(haystack), "da", 2));
-  ASSERT_EQ(haystack + 8, memmem(haystack, sizeof(haystack), "y\0g", 3));
+  ASSERT_EQ(haystack + 0, memmem(haystack, sizeof(haystack), "bi", 2));
+  ASSERT_EQ(haystack + 0, memmem(haystack, sizeof(haystack), "big", 3));
+  ASSERT_EQ(haystack + 0, memmem(haystack, sizeof(haystack), "big\0", 4));
+  ASSERT_EQ(haystack + 0, memmem(haystack, sizeof(haystack), "big\0d", 5));
+
+  ASSERT_EQ(haystack + 2, memmem(haystack, sizeof(haystack), "g", 1));
+  ASSERT_EQ(haystack + 10, memmem(haystack, sizeof(haystack), "gi", 2));
+  ASSERT_EQ(haystack + 10, memmem(haystack, sizeof(haystack), "gia", 3));
+  ASSERT_EQ(haystack + 10, memmem(haystack, sizeof(haystack), "gian", 4));
+  ASSERT_EQ(haystack + 10, memmem(haystack, sizeof(haystack), "giant", 5));
+
+  ASSERT_EQ(haystack + 25, memmem(haystack, sizeof(haystack), "!", 1));
+  ASSERT_EQ(haystack + 24, memmem(haystack, sizeof(haystack), "s!", 2));
+  ASSERT_EQ(haystack + 23, memmem(haystack, sizeof(haystack), "ks!", 3));
+  ASSERT_EQ(haystack + 22, memmem(haystack, sizeof(haystack), "cks!", 4));
+  ASSERT_EQ(haystack + 21, memmem(haystack, sizeof(haystack), "acks!", 5));
 }
 
 TEST(STRING_TEST, strstr_smoke) {
@@ -1589,14 +1625,42 @@ TEST(STRING_TEST, strcoll_smoke) {
   ASSERT_TRUE(strcoll("aac", "aab") > 0);
 }
 
+TEST(STRING_TEST, strcoll_l_smoke) {
+  // bionic just forwards to strcoll(3).
+  ASSERT_TRUE(strcoll_l("aab", "aac", LC_GLOBAL_LOCALE) < 0);
+  ASSERT_TRUE(strcoll_l("aab", "aab", LC_GLOBAL_LOCALE) == 0);
+  ASSERT_TRUE(strcoll_l("aac", "aab", LC_GLOBAL_LOCALE) > 0);
+}
+
 TEST(STRING_TEST, strxfrm_smoke) {
   const char* src1 = "aab";
   char dst1[16] = {};
-  ASSERT_GT(strxfrm(dst1, src1, sizeof(dst1)), 0U);
+  // Dry run.
+  ASSERT_EQ(strxfrm(dst1, src1, 0), 3U);
+  ASSERT_STREQ(dst1, "");
+  // Really do it.
+  ASSERT_EQ(strxfrm(dst1, src1, sizeof(dst1)), 3U);
+
   const char* src2 = "aac";
   char dst2[16] = {};
-  ASSERT_GT(strxfrm(dst2, src2, sizeof(dst2)), 0U);
+  // Dry run.
+  ASSERT_EQ(strxfrm(dst2, src2, 0), 3U);
+  ASSERT_STREQ(dst2, "");
+  // Really do it.
+  ASSERT_EQ(strxfrm(dst2, src2, sizeof(dst2)), 3U);
+
+  // The "transform" of two different strings should cause different outputs.
   ASSERT_TRUE(strcmp(dst1, dst2) < 0);
+}
+
+TEST(STRING_TEST, strxfrm_l_smoke) {
+  // bionic just forwards to strxfrm(3), so this is a subset of the
+  // strxfrm test.
+  const char* src1 = "aab";
+  char dst1[16] = {};
+  ASSERT_EQ(strxfrm_l(dst1, src1, 0, LC_GLOBAL_LOCALE), 3U);
+  ASSERT_STREQ(dst1, "");
+  ASSERT_EQ(strxfrm_l(dst1, src1, sizeof(dst1), LC_GLOBAL_LOCALE), 3U);
 }
 
 TEST(STRING_TEST, memccpy_smoke) {
@@ -1610,4 +1674,29 @@ TEST(STRING_TEST, memccpy_smoke) {
   memset(dst, 0, sizeof(dst));
   ASSERT_EQ(nullptr, memccpy(dst, "hello world", ' ', 4));
   ASSERT_STREQ("hell", dst);
+}
+
+TEST(STRING_TEST, memset_explicit_smoke) {
+#if defined(__BIONIC__)
+  // We can't reliably test that the compiler won't optimize out calls to
+  // memset_explicit(), but we can at least check that it behaves like memset.
+  char buf[32];
+  memset_explicit(buf, 'x', sizeof(buf));
+  ASSERT_TRUE(memcmp(buf, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", sizeof(buf)) == 0);
+#else
+  GTEST_SKIP() << "memset_explicit not available";
+#endif
+}
+
+TEST(STRING_TEST, strerrorname_np) {
+#if defined(__BIONIC__)
+  ASSERT_STREQ("0", strerrorname_np(0));
+  ASSERT_STREQ("EINVAL", strerrorname_np(EINVAL));
+  ASSERT_STREQ("ENOSYS", strerrorname_np(ENOSYS));
+
+  ASSERT_EQ(nullptr, strerrorname_np(-1));
+  ASSERT_EQ(nullptr, strerrorname_np(666));
+#else
+  GTEST_SKIP() << "strerrorname_np not available";
+#endif
 }

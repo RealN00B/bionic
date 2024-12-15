@@ -42,6 +42,13 @@
 #define DATA_WORD(val) .quad val
 #define MAIN .globl main; main: mov w0, wzr; ret
 
+#elif defined(__riscv)
+
+#define GOT_RELOC(sym) lga a0, sym
+#define CALL(sym) call sym@plt
+#define DATA_WORD(val) .quad val
+#define MAIN .globl main; main: li a0, 0; ret
+
 #elif defined(__i386__)
 
 #define GOT_RELOC(sym) .long sym@got

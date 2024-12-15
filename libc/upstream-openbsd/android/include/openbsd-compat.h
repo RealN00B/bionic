@@ -25,6 +25,8 @@
 
 #include <sys/random.h> // For getentropy.
 
+#include "private/bsd_sys_param.h"
+
 #define __BEGIN_HIDDEN_DECLS _Pragma("GCC visibility push(hidden)")
 #define __END_HIDDEN_DECLS _Pragma("GCC visibility pop")
 
@@ -38,26 +40,15 @@ extern const char* __progname;
 /* Ignore all __warn_references in OpenBSD. */
 #define __warn_references(sym,msg)
 
-/* OpenBSD's <ctype.h> uses these names, which conflicted with stlport.
- * Additionally, we changed the numeric/digit type from N to D for libcxx.
- */
-#define _U _CTYPE_U
-#define _L _CTYPE_L
-#define _N _CTYPE_D
-#define _S _CTYPE_S
-#define _P _CTYPE_P
-#define _C _CTYPE_C
-#define _X _CTYPE_X
-#define _B _CTYPE_B
+#define PROTO_NORMAL(x)
 
-/* OpenBSD has this, but we can't really implement it correctly on Linux. */
-#define issetugid() 0
+#if !defined(ANDROID_HOST_MUSL)
+#define explicit_bzero(p, s) memset_explicit(p, 0, s)
+#endif
 
-#define explicit_bzero(p, s) memset(p, 0, s)
-
-/* OpenBSD has these in <sys/param.h>, but "ALIGN" isn't something we want to reserve. */
-#define ALIGNBYTES (sizeof(uintptr_t) - 1)
-#define ALIGN(p) (((uintptr_t)(p) + ALIGNBYTES) &~ ALIGNBYTES)
+#if defined(ANDROID_HOST_MUSL)
+#define __LIBC_HIDDEN__ __attribute__((visibility("hidden")))
+#endif
 
 /* OpenBSD has this in paths.h. But this directory doesn't normally exist.
  * Even when it does exist, only the 'shell' user has permissions.
@@ -70,3 +61,7 @@ __LIBC_HIDDEN__ extern const char* __bionic_get_shell_path();
 
 __LIBC_HIDDEN__ extern char* __findenv(const char*, int, int*);
 __LIBC_HIDDEN__ extern char* _mktemp(char*);
+
+// Only OpenBSD has this at the moment, and we're more likely to just say
+// "malloc is always calloc", so we don't expose this as libc API.
+__LIBC_HIDDEN__ void* recallocarray(void*, size_t, size_t, size_t);

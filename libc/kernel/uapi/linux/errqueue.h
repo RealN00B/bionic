@@ -1,25 +1,18 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI_LINUX_ERRQUEUE_H
 #define _UAPI_LINUX_ERRQUEUE_H
 #include <linux/types.h>
 #include <linux/time_types.h>
+struct sock_ee_data_rfc4884 {
+  __u16 len;
+  __u8 flags;
+  __u8 reserved;
+};
 struct sock_extended_err {
   __u32 ee_errno;
   __u8 ee_origin;
@@ -27,7 +20,10 @@ struct sock_extended_err {
   __u8 ee_code;
   __u8 ee_pad;
   __u32 ee_info;
-  __u32 ee_data;
+  union {
+    __u32 ee_data;
+    struct sock_ee_data_rfc4884 ee_rfc4884;
+  };
 };
 #define SO_EE_ORIGIN_NONE 0
 #define SO_EE_ORIGIN_LOCAL 1
@@ -41,6 +37,7 @@ struct sock_extended_err {
 #define SO_EE_CODE_ZEROCOPY_COPIED 1
 #define SO_EE_CODE_TXTIME_INVALID_PARAM 1
 #define SO_EE_CODE_TXTIME_MISSED 2
+#define SO_EE_RFC4884_FLAG_INVALID 1
 struct scm_timestamping {
   struct timespec ts[3];
 };

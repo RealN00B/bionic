@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _LINUX_XDP_DIAG_H
 #define _LINUX_XDP_DIAG_H
 #include <linux/types.h>
@@ -38,6 +26,7 @@ struct xdp_diag_msg {
 #define XDP_SHOW_RING_CFG (1 << 1)
 #define XDP_SHOW_UMEM (1 << 2)
 #define XDP_SHOW_MEMINFO (1 << 3)
+#define XDP_SHOW_STATS (1 << 4)
 enum {
   XDP_DIAG_NONE,
   XDP_DIAG_INFO,
@@ -48,6 +37,7 @@ enum {
   XDP_DIAG_UMEM_FILL_RING,
   XDP_DIAG_UMEM_COMPLETION_RING,
   XDP_DIAG_MEMINFO,
+  XDP_DIAG_STATS,
   __XDP_DIAG_MAX,
 };
 #define XDP_DIAG_MAX (__XDP_DIAG_MAX - 1)
@@ -69,5 +59,13 @@ struct xdp_diag_umem {
   __u32 queue_id;
   __u32 flags;
   __u32 refs;
+};
+struct xdp_diag_stats {
+  __u64 n_rx_dropped;
+  __u64 n_rx_invalid;
+  __u64 n_rx_full;
+  __u64 n_fill_ring_empty;
+  __u64 n_tx_invalid;
+  __u64 n_tx_ring_empty;
 };
 #endif

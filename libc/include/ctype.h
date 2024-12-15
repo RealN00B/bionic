@@ -1,40 +1,29 @@
-/*	$OpenBSD: ctype.h,v 1.19 2005/12/13 00:35:22 millert Exp $	*/
-/*	$NetBSD: ctype.h,v 1.14 1994/10/26 00:55:47 cgd Exp $	*/
-
 /*
- * Copyright (c) 1989 The Regents of the University of California.
+ * Copyright (C) 2014 The Android Open Source Project
  * All rights reserved.
- * (c) UNIX System Laboratories, Inc.
- * All or some portions of this file are derived from material licensed
- * to the University of California by American Telephone and Telegraph
- * Co. or Unix System Laboratories, Inc. and are reproduced herein with
- * the permission of UNIX System Laboratories, Inc.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
- * 1. Redistributions of source code must retain the above copyright
+ *  * Redistributions of source code must retain the above copyright
  *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- * 3. Neither the name of the University nor the names of its contributors
- *    may be used to endorse or promote products derived from this software
- *    without specific prior written permission.
+ *  * Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in
+ *    the documentation and/or other materials provided with the
+ *    distribution.
  *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
- * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED.  IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
- * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
- * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
- * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
- * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+ * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+ * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+ * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+ * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
+ * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
+ * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+ * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
+ * OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
- *
- *	@(#)ctype.h	5.3 (Berkeley) 4/3/91
  */
 
 #pragma once
@@ -46,6 +35,15 @@
 
 #include <sys/cdefs.h>
 #include <xlocale.h>
+
+/* All the functions in this file are trivial, being but a single
+ * instruction on most architectures. For that reason, we inline them by
+ * default. This macro is meant for internal use only, so that we can
+ * also provide actual symbols for any caller that needs them.
+ */
+#if !defined(__BIONIC_CTYPE_INLINE)
+#define __BIONIC_CTYPE_INLINE static __inline
+#endif
 
 /** Internal implementation detail. Do not use. */
 #define _CTYPE_U 0x01
@@ -75,91 +73,180 @@ __BEGIN_DECLS
 /** Internal implementation detail. Do not use. */
 extern const char* _ctype_;
 
-/** Returns true if `ch` is in `[A-Za-z0-9]`. */
-int isalnum(int __ch);
-/** Returns true if `ch` is in `[A-Za-z]`. */
-int isalpha(int __ch);
-/** Returns true if `ch` is a space or tab. */
-int isblank(int __ch);
-/** Returns true if `ch` is a control character (any character before space, plus DEL). */
-int iscntrl(int __ch);
-/** Returns true if `ch` is in `[0-9]`. */
-int isdigit(int __ch);
-/** Returns true if `ch` is `[A-Za-z0-9]` or punctuation. */
-int isgraph(int __ch);
-/** Returns true if `ch` is in `[a-z]`. */
-int islower(int __ch);
-/** Returns true if `ch` is `[A-Za-z0-9]` or punctuation or space. */
-int isprint(int __ch);
-/** Returns true if `ch` is punctuation. */
-int ispunct(int __ch);
-/** Returns true if `ch` is in `[ \f\n\r\t\v]`. */
-int isspace(int __ch);
-/** Returns true if `ch` is in `[A-Z]`. */
-int isupper(int __ch);
-/** Returns true if `ch` is in `[0-9A-Fa-f]`. */
-int isxdigit(int __ch);
-
-/** Returns the corresponding lower-case character if `ch` is upper-case, or `ch` otherwise. */
-int tolower(int __ch);
-
 /**
  * Returns the corresponding lower-case character if `ch` is upper-case, or undefined otherwise.
  *
- * Available since API level 21.
- *
  * Prefer tolower() instead.
  */
-int _tolower(int __ch) __INTRODUCED_IN(21);
-
-/** Returns the corresponding upper-case character if `ch` is lower-case, or `ch` otherwise. */
-int toupper(int __ch);
+__BIONIC_CTYPE_INLINE int _tolower(int __ch) {
+  return __ch | 0x20;
+}
 
 /**
  * Returns the corresponding upper-case character if `ch` is lower-case, or undefined otherwise.
  *
- * Available since API level 21.
- *
  * Prefer toupper() instead.
  */
-int _toupper(int __ch) __INTRODUCED_IN(21);
+__BIONIC_CTYPE_INLINE int _toupper(int __ch) {
+  // Using EOR rather than AND makes no difference on arm, but saves an
+  // instruction on arm64.
+  return __ch ^ 0x20;
+}
 
-#if __ANDROID_API__ >= 21
-/** Like isalnum but with an ignored `locale_t`. */
-int isalnum_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like isalpha but with an ignored `locale_t`. */
-int isalpha_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like isblank but with an ignored `locale_t`. */
-int isblank_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like iscntrl but with an ignored `locale_t`. */
-int iscntrl_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like isdigit but with an ignored `locale_t`. */
-int isdigit_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like isgraph but with an ignored `locale_t`. */
-int isgraph_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like islower but with an ignored `locale_t`. */
-int islower_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like isprint but with an ignored `locale_t`. */
-int isprint_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like ispunct but with an ignored `locale_t`. */
-int ispunct_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like isspace but with an ignored `locale_t`. */
-int isspace_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like isupper but with an ignored `locale_t`. */
-int isupper_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like isxdigit but with an ignored `locale_t`. */
-int isxdigit_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like tolower but with an ignored `locale_t`. */
-int tolower_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-/** Like toupper but with an ignored `locale_t`. */
-int toupper_l(int __ch, locale_t __l) __INTRODUCED_IN(21);
-#else
-// Implemented as static inlines before 21.
-#endif
+/** Internal implementation detail. Do not use. */
+__attribute__((__no_sanitize__("unsigned-integer-overflow")))
+static inline int __bionic_ctype_in_range(unsigned __lo, int __ch, unsigned __hi) {
+  return (__BIONIC_CAST(static_cast, unsigned, __ch) - __lo) < (__hi - __lo + 1);
+}
+
+/** Returns true if `ch` is in `[A-Za-z]`. */
+__BIONIC_CTYPE_INLINE int isalpha(int __ch) {
+  return __bionic_ctype_in_range('a', _tolower(__ch), 'z');
+}
+
+/** Returns true if `ch` is a space or tab. */
+__BIONIC_CTYPE_INLINE int isblank(int __ch) {
+  return __ch == ' ' || __ch == '\t';
+}
+
+/** Returns true if `ch` is a control character (any character before space, plus DEL). */
+__BIONIC_CTYPE_INLINE int iscntrl(int __ch) {
+  return (__BIONIC_CAST(static_cast, unsigned, __ch) < ' ') || __ch == 0x7f;
+}
+
+/** Returns true if `ch` is in `[0-9]`. */
+__BIONIC_CTYPE_INLINE int isdigit(int __ch) {
+  return __bionic_ctype_in_range('0', __ch, '9');
+}
+
+/** Returns true if `ch` is `[A-Za-z0-9]` or punctuation. */
+__BIONIC_CTYPE_INLINE int isgraph(int __ch) {
+  return __bionic_ctype_in_range('!', __ch, '~');
+}
+
+/** Returns true if `ch` is in `[a-z]`. */
+__BIONIC_CTYPE_INLINE int islower(int __ch) {
+  return __bionic_ctype_in_range('a', __ch, 'z');
+}
+
+/** Returns true if `ch` is `[A-Za-z0-9]` or punctuation or space. */
+__BIONIC_CTYPE_INLINE int isprint(int __ch) {
+  return __bionic_ctype_in_range(' ', __ch, '~');
+}
+
+/** Returns true if `ch` is in `[ \f\n\r\t\v]`. */
+__BIONIC_CTYPE_INLINE int isspace(int __ch) {
+  return __ch == ' ' || __bionic_ctype_in_range('\t', __ch, '\r');
+}
+
+/** Returns true if `ch` is in `[A-Z]`. */
+__BIONIC_CTYPE_INLINE int isupper(int __ch) {
+  return __bionic_ctype_in_range('A', __ch, 'Z');
+}
+
+/** Returns true if `ch` is in `[0-9A-Fa-f]`. */
+__BIONIC_CTYPE_INLINE int isxdigit(int __ch) {
+  return isdigit(__ch) || __bionic_ctype_in_range('a', _tolower(__ch), 'f') ;
+}
+
+/** Returns true if `ch` is in `[A-Za-z0-9]`. */
+__BIONIC_CTYPE_INLINE int isalnum(int __ch) {
+  return isalpha(__ch) || isdigit(__ch);
+}
+
+/** Returns true if `ch` is punctuation. */
+__BIONIC_CTYPE_INLINE int ispunct(int __ch) {
+  return isgraph(__ch) && !isalnum(__ch);
+}
+
+/** Returns the corresponding lower-case character if `ch` is upper-case, or `ch` otherwise. */
+__BIONIC_CTYPE_INLINE int tolower(int __ch) {
+  return (__bionic_ctype_in_range('A', __ch, 'Z')) ? _tolower(__ch) : __ch;
+}
+
+/** Returns the corresponding upper-case character if `ch` is lower-case, or `ch` otherwise. */
+__BIONIC_CTYPE_INLINE int toupper(int __ch) {
+  return (__bionic_ctype_in_range('a', __ch, 'z')) ? _toupper(__ch) : __ch;
+}
 
 /** Returns true if `ch` is less than 0x80. */
-int isascii(int __ch);
+__BIONIC_CTYPE_INLINE int isascii(int __ch) {
+  return __BIONIC_CAST(static_cast, unsigned, __ch) < 0x80;
+}
+
 /** Returns `ch & 0x7f`. */
-int toascii(int __ch);
+__BIONIC_CTYPE_INLINE int toascii(int __ch) {
+  return __ch & 0x7f;
+}
+
+/** Like isalnum() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int isalnum_l(int __ch, locale_t __l) {
+  return isalnum(__ch);
+}
+
+/** Like isalpha() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int isalpha_l(int __ch, locale_t __l) {
+  return isalpha(__ch);
+}
+
+/** Like isblank() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int isblank_l(int __ch, locale_t __l) {
+  return isblank(__ch);
+}
+
+/** Like iscntrl() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int iscntrl_l(int __ch, locale_t __l) {
+  return iscntrl(__ch);
+}
+
+/** Like isdigit() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int isdigit_l(int __ch, locale_t __l) {
+  return isdigit(__ch);
+}
+
+/** Like isgraph() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int isgraph_l(int __ch, locale_t __l) {
+  return isgraph(__ch);
+}
+
+/** Like islower() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int islower_l(int __ch, locale_t __l) {
+  return islower(__ch);
+}
+
+/** Like isprint() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int isprint_l(int __ch, locale_t __l) {
+  return isprint(__ch);
+}
+
+/** Like ispunct() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int ispunct_l(int __ch, locale_t __l) {
+  return ispunct(__ch);
+}
+
+/** Like isspace() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int isspace_l(int __ch, locale_t __l) {
+  return isspace(__ch);
+}
+
+/** Like isupper() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int isupper_l(int __ch, locale_t __l) {
+  return isupper(__ch);
+}
+
+/** Like isxdigit() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int isxdigit_l(int __ch, locale_t __l) {
+  return isxdigit(__ch);
+}
+
+/** Like tolower() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int tolower_l(int __ch, locale_t __l) {
+  return tolower(__ch);
+}
+
+/** Like toupper() but with an ignored `locale_t`. */
+__BIONIC_CTYPE_INLINE int toupper_l(int __ch, locale_t __l) {
+  return toupper(__ch);
+}
 
 __END_DECLS

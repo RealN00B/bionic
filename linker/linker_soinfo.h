@@ -34,9 +34,11 @@
 #include <string>
 #include <vector>
 
-#include "private/bionic_elf_tls.h"
+#include "async_safe/CHECK.h"
 #include "linker_namespaces.h"
 #include "linker_tls.h"
+#include "private/bionic_elf_tls.h"
+#include "private/bionic_globals.h"
 
 #define FLAG_LINKED           0x00000001
 #define FLAG_EXE              0x00000004 // The main executable
@@ -66,7 +68,7 @@
 #define FLAG_PRELINKED        0x00000400 // prelink_image has successfully processed this soinfo
 #define FLAG_NEW_SOINFO       0x40000000 // new soinfo format
 
-#define SOINFO_VERSION 5
+#define SOINFO_VERSION 6
 
 ElfW(Addr) call_ifunc_resolver(ElfW(Addr) resolver_addr);
 
@@ -191,10 +193,8 @@ struct soinfo {
   uint32_t* bucket_;
   uint32_t* chain_;
 
-#if defined(__mips__) || !defined(__LP64__)
-  // This is only used by mips and mips64, but needs to be here for
-  // all 32-bit architectures to preserve binary compatibility.
-  ElfW(Addr)** plt_got_;
+#if !defined(__LP64__)
+  ElfW(Addr)** unused4; // DO NOT USE, maintained for compatibility
 #endif
 
 #if defined(USE_RELA)
@@ -228,16 +228,6 @@ struct soinfo {
   uint32_t* ARM_exidx;
   size_t ARM_exidx_count;
  private:
-#elif defined(__mips__)
-  uint32_t mips_symtabno_;
-  uint32_t mips_local_gotno_;
-  uint32_t mips_gotsym_;
-  bool mips_relocate_got(const VersionTracker& version_tracker,
-                         const soinfo_list_t& global_group,
-                         const soinfo_list_t& local_group);
-#if !defined(__LP64__)
-  bool mips_check_and_adjust_fp_modes();
-#endif
 #endif
   size_t ref_count_;
  public:
@@ -357,6 +347,28 @@ struct soinfo {
 
   SymbolLookupLib get_lookup_lib();
 
+  void set_gap_start(ElfW(Addr) gap_start);
+  ElfW(Addr) get_gap_start() const;
+
+  void set_gap_size(size_t gap_size);
+  size_t get_gap_size() const;
+
+  const memtag_dynamic_entries_t* memtag_dynamic_entries() const {
+    CHECK(has_min_version(7));
+    return &memtag_dynamic_entries_;
+  }
+  void* memtag_globals() const { return memtag_dynamic_entries()->memtag_globals; }
+  size_t memtag_globalssz() const { return memtag_dynamic_entries()->memtag_globalssz; }
+  bool has_memtag_mode() const { return memtag_dynamic_entries()->has_memtag_mode; }
+  unsigned memtag_mode() const { return memtag_dynamic_entries()->memtag_mode; }
+  bool memtag_heap() const { return memtag_dynamic_entries()->memtag_heap; }
+  bool memtag_stack() const { return memtag_dynamic_entries()->memtag_stack; }
+
+  void set_should_pad_segments(bool should_pad_segments) {
+   should_pad_segments_ = should_pad_segments;
+  }
+  bool should_pad_segments() const { return should_pad_segments_; }
+
  private:
   bool is_image_linked() const;
   void set_image_linked();
@@ -372,8 +384,6 @@ struct soinfo {
 
  private:
   bool relocate(const SymbolLookupList& lookup_list);
-  bool relocate_relr();
-  void apply_relr_reloc(ElfW(Addr) offset);
 
   // This part of the structure is only available
   // when FLAG_NEW_SOINFO is set in this->flags.
@@ -407,7 +417,7 @@ struct soinfo {
   uint8_t* android_relocs_;
   size_t android_relocs_size_;
 
-  const char* soname_;
+  std::string soname_;
   std::string realpath_;
 
   const ElfW(Versym)* versym_;
@@ -435,6 +445,16 @@ struct soinfo {
   // version >= 5
   std::unique_ptr<soinfo_tls> tls_;
   std::vector<TlsDynamicResolverArg> tlsdesc_args_;
+
+  // version >= 6
+  ElfW(Addr) gap_start_;
+  size_t gap_size_;
+
+  // version >= 7
+  memtag_dynamic_entries_t memtag_dynamic_entries_;
+
+  // Pad gaps between segments when memory mapping?
+  bool should_pad_segments_ = false;
 };
 
 // This function is used by dlvsym() to calculate hash of sym_ver

@@ -46,9 +46,6 @@
 #include <string>
 #include <unordered_map>
 
-#define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
-#include <sys/_system_properties.h>
-
 class ConfigParser {
  public:
   enum {
@@ -254,11 +251,8 @@ static bool parse_config_file(const char* ld_config_file_path,
         // the failure with INFO rather than DL_WARN. e.g. A binary in
         // /data/local/tmp may attempt to stat /postinstall. See
         // http://b/120996057.
-        INFO("%s:%zd: warning: path \"%s\" couldn't be resolved: %s",
-             ld_config_file_path,
-             cp.lineno(),
-             value.c_str(),
-             strerror(errno));
+        LD_DEBUG(any, "%s:%zd: warning: path \"%s\" couldn't be resolved: %m",
+                 ld_config_file_path, cp.lineno(), value.c_str());
         resolved_path = value;
       }
 
@@ -269,7 +263,7 @@ static bool parse_config_file(const char* ld_config_file_path,
     }
   }
 
-  INFO("[ Using config section \"%s\" ]", section_name.c_str());
+  LD_DEBUG(any, "[ Using config section \"%s\" ]", section_name.c_str());
 
   // skip everything until we meet a correct section
   while (true) {
@@ -304,7 +298,7 @@ static bool parse_config_file(const char* ld_config_file_path,
     }
 
     if (result == ConfigParser::kPropertyAssign) {
-      if (properties->find(name) != properties->end()) {
+      if (properties->contains(name)) {
         DL_WARN("%s:%zd: warning: redefining property \"%s\" (overriding previous value)",
                 ld_config_file_path,
                 cp.lineno(),
@@ -313,7 +307,7 @@ static bool parse_config_file(const char* ld_config_file_path,
 
       (*properties)[name] = PropertyValue(std::move(value), cp.lineno());
     } else if (result == ConfigParser::kPropertyAppend) {
-      if (properties->find(name) == properties->end()) {
+      if (!properties->contains(name)) {
         DL_WARN("%s:%zd: warning: appending to undefined property \"%s\" (treating as assignment)",
                 ld_config_file_path,
                 cp.lineno(),
@@ -325,7 +319,9 @@ static bool parse_config_file(const char* ld_config_file_path,
           value = "," + value;
           (*properties)[name].append_value(std::move(value));
         } else if (android::base::EndsWith(name, ".paths") ||
-                   android::base::EndsWith(name, ".shared_libs")) {
+                   android::base::EndsWith(name, ".shared_libs") ||
+                   android::base::EndsWith(name, ".whitelisted") ||
+                   android::base::EndsWith(name, ".allowed_libs")) {
           value = ":" + value;
           (*properties)[name].append_value(std::move(value));
         } else {
@@ -461,6 +457,7 @@ class Properties {
 bool Config::read_binary_config(const char* ld_config_file_path,
                                       const char* binary_realpath,
                                       bool is_asan,
+                                      bool is_hwasan,
                                       const Config** config,
                                       std::string* error_msg) {
   g_config.clear();
@@ -523,7 +520,7 @@ bool Config::read_binary_config(const char* ld_config_file_path,
         properties.get_strings(property_name_prefix + ".links", &lineno);
 
     for (const auto& linked_ns_name : linked_namespaces) {
-      if (namespace_configs.find(linked_ns_name) == namespace_configs.end()) {
+      if (!namespace_configs.contains(linked_ns_name)) {
         *error_msg = create_error_msg(ld_config_file_path,
                                       lineno,
                                       std::string("undefined namespace: ") + linked_ns_name);
@@ -563,15 +560,22 @@ bool Config::read_binary_config(const char* ld_config_file_path,
     ns_config->set_isolated(properties.get_bool(property_name_prefix + ".isolated"));
     ns_config->set_visible(properties.get_bool(property_name_prefix + ".visible"));
 
-    std::string whitelisted =
+    std::string allowed_libs =
         properties.get_string(property_name_prefix + ".whitelisted", &lineno);
-    if (!whitelisted.empty()) {
-      ns_config->set_whitelisted_libs(android::base::Split(whitelisted, ":"));
+    const std::string libs = properties.get_string(property_name_prefix + ".allowed_libs", &lineno);
+    if (!allowed_libs.empty() && !libs.empty()) {
+      allowed_libs += ":";
+    }
+    allowed_libs += libs;
+    if (!allowed_libs.empty()) {
+      ns_config->set_allowed_libs(android::base::Split(allowed_libs, ":"));
     }
 
     // these are affected by is_asan flag
     if (is_asan) {
       property_name_prefix += ".asan";
+    } else if (is_hwasan) {
+      property_name_prefix += ".hwasan";
     }
 
     // search paths are resolved (canonicalized). This is required mainly for

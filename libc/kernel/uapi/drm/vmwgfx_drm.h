@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef __VMWGFX_DRM_H__
 #define __VMWGFX_DRM_H__
 #include "drm.h"
@@ -55,6 +43,10 @@ extern "C" {
 #define DRM_VMW_CREATE_EXTENDED_CONTEXT 26
 #define DRM_VMW_GB_SURFACE_CREATE_EXT 27
 #define DRM_VMW_GB_SURFACE_REF_EXT 28
+#define DRM_VMW_MSG 29
+#define DRM_VMW_MKSSTAT_RESET 30
+#define DRM_VMW_MKSSTAT_ADD 31
+#define DRM_VMW_MKSSTAT_REMOVE 32
 #define DRM_VMW_PARAM_NUM_STREAMS 0
 #define DRM_VMW_PARAM_NUM_FREE_STREAMS 1
 #define DRM_VMW_PARAM_3D 2
@@ -70,6 +62,9 @@ extern "C" {
 #define DRM_VMW_PARAM_DX 12
 #define DRM_VMW_PARAM_HW_CAPS2 13
 #define DRM_VMW_PARAM_SM4_1 14
+#define DRM_VMW_PARAM_SM5 15
+#define DRM_VMW_PARAM_GL43 16
+#define DRM_VMW_PARAM_DEVICE_ID 17
 enum drm_vmw_handle_type {
   DRM_VMW_HANDLE_LEGACY = 0,
   DRM_VMW_HANDLE_PRIME = 1
@@ -266,7 +261,8 @@ struct drm_vmw_shader_arg {
 enum drm_vmw_surface_flags {
   drm_vmw_surface_flag_shareable = (1 << 0),
   drm_vmw_surface_flag_scanout = (1 << 1),
-  drm_vmw_surface_flag_create_buffer = (1 << 2)
+  drm_vmw_surface_flag_create_buffer = (1 << 2),
+  drm_vmw_surface_flag_coherent = (1 << 3),
 };
 struct drm_vmw_gb_surface_create_req {
   __u32 svga3d_flags;
@@ -328,15 +324,16 @@ struct drm_vmw_handle_close_arg {
 };
 #define drm_vmw_unref_dmabuf_arg drm_vmw_handle_close_arg
 enum drm_vmw_surface_version {
-  drm_vmw_gb_surface_v1
+  drm_vmw_gb_surface_v1,
 };
 struct drm_vmw_gb_surface_create_ext_req {
   struct drm_vmw_gb_surface_create_req base;
   enum drm_vmw_surface_version version;
-  uint32_t svga3d_flags_upper_32_bits;
-  SVGA3dMSPattern multisample_pattern;
-  SVGA3dMSQualityLevel quality_level;
-  uint64_t must_be_zero;
+  __u32 svga3d_flags_upper_32_bits;
+  __u32 multisample_pattern;
+  __u32 quality_level;
+  __u32 buffer_byte_stride;
+  __u32 must_be_zero;
 };
 union drm_vmw_gb_surface_create_ext_arg {
   struct drm_vmw_gb_surface_create_rep rep;
@@ -349,6 +346,25 @@ struct drm_vmw_gb_surface_ref_ext_rep {
 union drm_vmw_gb_surface_reference_ext_arg {
   struct drm_vmw_gb_surface_ref_ext_rep rep;
   struct drm_vmw_surface_arg req;
+};
+struct drm_vmw_msg_arg {
+  __u64 send;
+  __u64 receive;
+  __s32 send_only;
+  __u32 receive_len;
+};
+struct drm_vmw_mksstat_add_arg {
+  __u64 stat;
+  __u64 info;
+  __u64 strs;
+  __u64 stat_len;
+  __u64 info_len;
+  __u64 strs_len;
+  __u64 description;
+  __u64 id;
+};
+struct drm_vmw_mksstat_remove_arg {
+  __u64 id;
 };
 #ifdef __cplusplus
 }

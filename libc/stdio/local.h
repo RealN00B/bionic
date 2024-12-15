@@ -51,11 +51,7 @@ __BEGIN_DECLS
 
 struct __sbuf {
   unsigned char* _base;
-#if defined(__LP64__)
   size_t _size;
-#else
-  int _size;
-#endif
 };
 
 struct __sFILE {
@@ -170,7 +166,6 @@ struct __sfileext {
 #define _EXT(fp) __BIONIC_CAST(reinterpret_cast, struct __sfileext*, (fp)->_ext._base)
 
 #define _UB(fp) _EXT(fp)->_ub
-#define _FLOCK(fp) _EXT(fp)->_lock
 
 #define _FILEEXT_SETUP(fp, fext)                                              \
   do {                                                                        \
@@ -237,7 +232,7 @@ int __vfwscanf(FILE*, const wchar_t*, va_list);
 /* OpenBSD exposes these in <stdio.h>, but we only want them exposed to the implementation. */
 #define __sferror(p) (((p)->_flags & __SERR) != 0)
 #define __sclearerr(p) ((void)((p)->_flags &= ~(__SERR | __SEOF)))
-#define __sgetc(p) (--(p)->_r < 0 ? __srget(p) : (int)(*(p)->_p++))
+#define __sgetc(p) (--(p)->_r < 0 ? __srget(p) : __BIONIC_CAST(static_cast, int, *(p)->_p++))
 
 /* OpenBSD declares these in fvwrite.h, but we share them with C++ parts of the implementation. */
 struct __siov {
@@ -259,8 +254,8 @@ extern void __sinit(void);  // Not actually implemented.
 size_t parsefloat(FILE*, char*, char*);
 size_t wparsefloat(FILE*, wchar_t*, wchar_t*);
 
-// Sanity check a FILE* for nullptr, so we can emit a message while crashing
-// instead of doing a blind null-dereference.
+// Check a FILE* isn't nullptr, so we can emit a clear diagnostic message
+// instead of just crashing with SIGSEGV.
 #define CHECK_FP(fp) \
   if (fp == nullptr) __fortify_fatal("%s: null FILE*", __FUNCTION__)
 
@@ -289,19 +284,23 @@ char* __hdtoa(double, const char*, int, int*, int*, char**);
 char* __hldtoa(long double, const char*, int, int*, int*, char**);
 char* __ldtoa(long double*, int, int, int*, int*, char**);
 
-#define WCIO_GET(fp) (_EXT(fp) ? &(_EXT(fp)->_wcio) : (struct wchar_io_data*)0)
+#define WCIO_GET(fp) (_EXT(fp) ? &(_EXT(fp)->_wcio) : NULL)
 
-#define _SET_ORIENTATION(fp, mode)                                 \
-  do {                                                             \
-    struct wchar_io_data* _wcio = WCIO_GET(fp);                    \
-    if (_wcio && _wcio->wcio_mode == 0) _wcio->wcio_mode = (mode); \
+#define ORIENT_BYTES (-1)
+#define ORIENT_UNKNOWN 0
+#define ORIENT_CHARS 1
+
+#define _SET_ORIENTATION(fp, mode)                                              \
+  do {                                                                          \
+    struct wchar_io_data* _wcio = WCIO_GET(fp);                                 \
+    if (_wcio && _wcio->wcio_mode == ORIENT_UNKNOWN) _wcio->wcio_mode = (mode); \
   } while (0)
 
 #define WCIO_FREE(fp)                           \
   do {                                          \
     struct wchar_io_data* _wcio = WCIO_GET(fp); \
     if (_wcio) {                                \
-      _wcio->wcio_mode = 0;                     \
+      _wcio->wcio_mode = ORIENT_UNKNOWN;        \
       _wcio->wcio_ungetwc_inbuf = 0;            \
     }                                           \
   } while (0)

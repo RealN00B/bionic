@@ -26,9 +26,6 @@
  * s_sinl.c and s_cosl.c merged by Steven G. Kargl.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_sincosl.c 319047 2017-05-28 06:13:38Z mmel $");
-
 #include <float.h>
 #ifdef __i386__
 #include <ieeefp.h>
@@ -50,11 +47,10 @@ void
 sincosl(long double x, long double *sn, long double *cs)
 {
 	union IEEEl2bits z;
-	int e0, sgn;
+	int e0;
 	long double y[2];
 
 	z.e = x;
-	sgn = z.bits.sign;
 	z.bits.sign = 0;
 
 	ENTERV();

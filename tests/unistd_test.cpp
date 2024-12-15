@@ -16,7 +16,6 @@
 
 #include <gtest/gtest.h>
 
-#include "BionicDeathTest.h"
 #include "SignalUtils.h"
 #include "utils.h"
 
@@ -37,9 +36,14 @@
 #include <chrono>
 
 #include <android-base/file.h>
+#include <android-base/silent_death_test.h>
 #include <android-base/strings.h>
 
 #include "private/get_cpu_count_from_string.h"
+
+#if defined(__BIONIC__)
+#include "bionic/pthread_internal.h"
+#endif
 
 #if defined(NOFORTIFY)
 #define UNISTD_TEST unistd_nofortify
@@ -48,6 +52,8 @@
 #define UNISTD_TEST unistd
 #define UNISTD_DEATHTEST unistd_DeathTest
 #endif
+
+using UNISTD_DEATHTEST = SilentDeathTest;
 
 using namespace std::chrono_literals;
 
@@ -66,7 +72,7 @@ TEST(UNISTD_TEST, brk) {
   void* new_break = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(initial_break) + 1);
   int ret = brk(new_break);
   if (ret == -1) {
-    ASSERT_EQ(errno, ENOMEM);
+    ASSERT_ERRNO(ENOMEM);
   } else {
     ASSERT_EQ(0, ret);
     ASSERT_GE(get_brk(), new_break);
@@ -76,7 +82,7 @@ TEST(UNISTD_TEST, brk) {
   new_break = page_align(reinterpret_cast<uintptr_t>(initial_break) + sysconf(_SC_PAGE_SIZE));
   ret = brk(new_break);
   if (ret == -1) {
-    ASSERT_EQ(errno, ENOMEM);
+    ASSERT_ERRNO(ENOMEM);
   } else {
     ASSERT_EQ(0, ret);
     ASSERT_EQ(get_brk(), new_break);
@@ -85,7 +91,7 @@ TEST(UNISTD_TEST, brk) {
 
 TEST(UNISTD_TEST, brk_ENOMEM) {
   ASSERT_EQ(-1, brk(reinterpret_cast<void*>(-1)));
-  ASSERT_EQ(ENOMEM, errno);
+  ASSERT_ERRNO(ENOMEM);
 }
 
 #if defined(__GLIBC__)
@@ -118,18 +124,18 @@ TEST(UNISTD_TEST, sbrk_ENOMEM) {
 
   // Can't increase by so much that we'd overflow.
   ASSERT_EQ(reinterpret_cast<void*>(-1), sbrk(PTRDIFF_MAX));
-  ASSERT_EQ(ENOMEM, errno);
+  ASSERT_ERRNO(ENOMEM);
 
   // Set the current break to a point that will cause an overflow.
   __bionic_brk = reinterpret_cast<void*>(static_cast<uintptr_t>(PTRDIFF_MAX));
 
   ASSERT_EQ(reinterpret_cast<void*>(-1), sbrk(PTRDIFF_MIN));
-  ASSERT_EQ(ENOMEM, errno);
+  ASSERT_ERRNO(ENOMEM);
 
   __bionic_brk = reinterpret_cast<void*>(static_cast<uintptr_t>(PTRDIFF_MAX) - 1);
 
   ASSERT_EQ(reinterpret_cast<void*>(-1), sbrk(PTRDIFF_MIN + 1));
-  ASSERT_EQ(ENOMEM, errno);
+  ASSERT_ERRNO(ENOMEM);
 #else
   class ScopedBrk {
   public:
@@ -148,7 +154,7 @@ TEST(UNISTD_TEST, sbrk_ENOMEM) {
     ASSERT_EQ(reinterpret_cast<void*>(-1), sbrk(SBRK_MIN));
 #if defined(__BIONIC__)
     // GLIBC does not set errno in overflow case.
-    ASSERT_EQ(ENOMEM, errno);
+    ASSERT_ERRNO(ENOMEM);
 #endif
   }
 
@@ -161,7 +167,7 @@ TEST(UNISTD_TEST, sbrk_ENOMEM) {
     ASSERT_EQ(reinterpret_cast<void*>(-1), sbrk(SBRK_MAX));
 #if defined(__BIONIC__)
     // GLIBC does not set errno in overflow case.
-    ASSERT_EQ(ENOMEM, errno);
+    ASSERT_ERRNO(ENOMEM);
 #endif
   }
 #endif
@@ -177,7 +183,7 @@ TEST(UNISTD_TEST, truncate) {
   ASSERT_EQ(123, sb.st_size);
 }
 
-TEST(UNISTD_TEST, truncate64) {
+TEST(UNISTD_TEST, truncate64_smoke) {
   TemporaryFile tf;
   ASSERT_EQ(0, close(tf.fd));
   ASSERT_EQ(0, truncate64(tf.path, 123));
@@ -197,7 +203,7 @@ TEST(UNISTD_TEST, ftruncate) {
   ASSERT_EQ(123, sb.st_size);
 }
 
-TEST(UNISTD_TEST, ftruncate64) {
+TEST(UNISTD_TEST, ftruncate64_smoke) {
   TemporaryFile tf;
   ASSERT_EQ(0, ftruncate64(tf.fd, 123));
   ASSERT_EQ(0, close(tf.fd));
@@ -211,7 +217,7 @@ TEST(UNISTD_TEST, ftruncate_negative) {
   TemporaryFile tf;
   errno = 0;
   ASSERT_EQ(-1, ftruncate(tf.fd, -123));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 }
 
 static bool g_pause_test_flag = false;
@@ -247,7 +253,7 @@ TEST(UNISTD_TEST, read_EBADF) {
   // our syscall stubs correctly return a 64-bit -1.
   char buf[1];
   ASSERT_EQ(-1, read(-1, buf, sizeof(buf)));
-  ASSERT_EQ(EBADF, errno);
+  ASSERT_ERRNO(EBADF);
 }
 
 TEST(UNISTD_TEST, syscall_long) {
@@ -282,24 +288,27 @@ TEST(UNISTD_TEST, getenv_unsetenv) {
 
 TEST(UNISTD_TEST, unsetenv_EINVAL) {
   EXPECT_EQ(-1, unsetenv(""));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
   EXPECT_EQ(-1, unsetenv("a=b"));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
 }
 
 TEST(UNISTD_TEST, setenv_EINVAL) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
   EXPECT_EQ(-1, setenv(nullptr, "value", 0));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
   EXPECT_EQ(-1, setenv(nullptr, "value", 1));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
+#pragma clang diagnostic pop
   EXPECT_EQ(-1, setenv("", "value", 0));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
   EXPECT_EQ(-1, setenv("", "value", 1));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
   EXPECT_EQ(-1, setenv("a=b", "value", 0));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
   EXPECT_EQ(-1, setenv("a=b", "value", 1));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
 }
 
 TEST(UNISTD_TEST, setenv) {
@@ -385,7 +394,7 @@ static void TestSyncFunction(int (*fn)(int)) {
   // Can't sync an invalid fd.
   errno = 0;
   EXPECT_EQ(-1, fn(-1));
-  EXPECT_EQ(EBADF, errno);
+  EXPECT_ERRNO(EBADF);
 
   // It doesn't matter whether you've opened a file for write or not.
   TemporaryFile tf;
@@ -415,7 +424,7 @@ static void TestFsyncFunction(int (*fn)(int)) {
   int fd = open("/proc/version", O_RDONLY);
   ASSERT_NE(-1, fd);
   EXPECT_EQ(-1, fn(fd));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
   close(fd);
 }
 
@@ -429,6 +438,61 @@ TEST(UNISTD_TEST, fsync) {
 
 TEST(UNISTD_TEST, syncfs) {
   TestSyncFunction(syncfs);
+}
+
+TEST(UNISTD_TEST, _Fork) {
+#if defined(__BIONIC__)
+  pid_t rc = _Fork();
+  ASSERT_NE(-1, rc);
+  if (rc == 0) {
+    _exit(66);
+  }
+
+  int status;
+  pid_t wait_result = waitpid(rc, &status, 0);
+  ASSERT_EQ(wait_result, rc);
+  ASSERT_TRUE(WIFEXITED(status));
+  ASSERT_EQ(66, WEXITSTATUS(status));
+#endif
+}
+
+TEST(UNISTD_TEST, vfork) {
+#if defined(__BIONIC__)
+  pthread_internal_t* self = __get_thread();
+
+  pid_t cached_pid;
+  ASSERT_TRUE(self->get_cached_pid(&cached_pid));
+  ASSERT_EQ(syscall(__NR_getpid), cached_pid);
+  ASSERT_FALSE(self->is_vforked());
+
+  pid_t rc = vfork();
+  ASSERT_NE(-1, rc);
+  if (rc == 0) {
+    if (self->get_cached_pid(&cached_pid)) {
+      const char* error = "__get_thread()->cached_pid_ set after vfork\n";
+      write(STDERR_FILENO, error, strlen(error));
+      _exit(1);
+    }
+
+    if (!self->is_vforked()) {
+      const char* error = "__get_thread()->vforked_ not set after vfork\n";
+      write(STDERR_FILENO, error, strlen(error));
+      _exit(1);
+    }
+
+    _exit(0);
+  } else {
+    ASSERT_TRUE(self->get_cached_pid(&cached_pid));
+    ASSERT_EQ(syscall(__NR_getpid), cached_pid);
+    ASSERT_FALSE(self->is_vforked());
+
+    int status;
+    pid_t wait_result = waitpid(rc, &status, 0);
+    ASSERT_EQ(wait_result, rc);
+    ASSERT_TRUE(WIFEXITED(status));
+    ASSERT_EQ(0, WEXITSTATUS(status));
+  }
+#endif
 }
 
 static void AssertGetPidCorrect() {
@@ -541,9 +605,10 @@ TEST(UNISTD_TEST, gettid_caching_and_clone_process_settid) {
   TestGetTidCachingWithFork(CloneAndSetTid, exit);
 }
 
+__attribute__((no_sanitize("hwaddress", "memtag")))
 static int CloneStartRoutine(int (*start_routine)(void*)) {
   void* child_stack[1024];
-  return clone(start_routine, untag_address(&child_stack[1024]), SIGCHLD, nullptr);
+  return clone(start_routine, &child_stack[1024], SIGCHLD, nullptr);
 }
 
 static int GetPidCachingCloneStartRoutine(void*) {
@@ -633,23 +698,19 @@ TEST(UNISTD_TEST, gettid_caching_and_pthread_create) {
   ASSERT_NE(static_cast<uint64_t>(parent_tid), reinterpret_cast<uint64_t>(result));
 }
 
-static void optimization_barrier(void* arg) {
-  asm volatile("" : : "r"(arg) : "memory");
-}
-
 __attribute__((noinline)) static void HwasanVforkTestChild() {
   // Allocate a tagged region on stack and leave it there.
   char x[10000];
-  optimization_barrier(x);
+  DoNotOptimize(x);
   _exit(0);
 }
 
 __attribute__((noinline)) static void HwasanReadMemory(const char* p, size_t size) {
   // Read memory byte-by-byte. This will blow up if the pointer tag in p does not match any memory
   // tag in [p, p+size).
-  volatile char z;
+  char z;
   for (size_t i = 0; i < size; ++i) {
-    z = p[i];
+    DoNotOptimize(z = p[i]);
   }
 }
 
@@ -657,7 +718,7 @@ __attribute__((noinline, no_sanitize("hwaddress"))) static void HwasanVforkTestP
   // Allocate a region on stack, but don't tag it (see the function attribute).
   // This depends on unallocated stack space at current function entry being untagged.
   char x[10000];
-  optimization_barrier(x);
+  DoNotOptimize(x);
   // Verify that contents of x[] are untagged.
   HwasanReadMemory(x, sizeof(x));
 }
@@ -671,8 +732,6 @@ TEST(UNISTD_TEST, hwasan_vfork) {
     HwasanVforkTestChild();
   }
 }
-
-class UNISTD_DEATHTEST : public BionicDeathTest {};
 
 TEST_F(UNISTD_DEATHTEST, abort) {
   ASSERT_EXIT(abort(), testing::KilledBySignal(SIGABRT), "");
@@ -694,39 +753,52 @@ TEST(UNISTD_TEST, gethostname) {
   ASSERT_EQ(0, gethostname(hostname, HOST_NAME_MAX));
 
   // Can we get the hostname with a right-sized buffer?
-  errno = 0;
   ASSERT_EQ(0, gethostname(hostname, strlen(hostname) + 1));
 
   // Does uname(2) agree?
   utsname buf;
   ASSERT_EQ(0, uname(&buf));
-  ASSERT_EQ(0, strncmp(hostname, buf.nodename, SYS_NMLN));
+  ASSERT_EQ(0, strncmp(hostname, buf.nodename, sizeof(buf.nodename)));
   ASSERT_GT(strlen(hostname), 0U);
 
   // Do we correctly detect truncation?
   errno = 0;
   ASSERT_EQ(-1, gethostname(hostname, strlen(hostname)));
-  ASSERT_EQ(ENAMETOOLONG, errno);
+  ASSERT_ERRNO(ENAMETOOLONG);
 }
 
 TEST(UNISTD_TEST, pathconf_fpathconf) {
   TemporaryFile tf;
-  long rc = 0L;
+  long l;
+
   // As a file system's block size is always power of 2, the configure values
   // for ALLOC and XFER should be power of 2 as well.
-  rc = pathconf(tf.path, _PC_ALLOC_SIZE_MIN);
-  ASSERT_TRUE(rc > 0 && powerof2(rc));
-  rc = pathconf(tf.path, _PC_REC_MIN_XFER_SIZE);
-  ASSERT_TRUE(rc > 0 && powerof2(rc));
-  rc = pathconf(tf.path, _PC_REC_XFER_ALIGN);
-  ASSERT_TRUE(rc > 0 && powerof2(rc));
+  l = pathconf(tf.path, _PC_ALLOC_SIZE_MIN);
+  ASSERT_TRUE(l > 0 && powerof2(l));
+  l = pathconf(tf.path, _PC_REC_MIN_XFER_SIZE);
+  ASSERT_TRUE(l > 0 && powerof2(l));
+  l = pathconf(tf.path, _PC_REC_XFER_ALIGN);
+  ASSERT_TRUE(l > 0 && powerof2(l));
 
-  rc = fpathconf(tf.fd, _PC_ALLOC_SIZE_MIN);
-  ASSERT_TRUE(rc > 0 && powerof2(rc));
-  rc = fpathconf(tf.fd, _PC_REC_MIN_XFER_SIZE);
-  ASSERT_TRUE(rc > 0 && powerof2(rc));
-  rc = fpathconf(tf.fd, _PC_REC_XFER_ALIGN);
-  ASSERT_TRUE(rc > 0 && powerof2(rc));
+  l = fpathconf(tf.fd, _PC_ALLOC_SIZE_MIN);
+  ASSERT_TRUE(l > 0 && powerof2(l));
+  l = fpathconf(tf.fd, _PC_REC_MIN_XFER_SIZE);
+  ASSERT_TRUE(l > 0 && powerof2(l));
+  l = fpathconf(tf.fd, _PC_REC_XFER_ALIGN);
+  ASSERT_TRUE(l > 0 && powerof2(l));
+
+  // Check that the "I can't answer that, you'll have to try it and see"
+  // cases don't set errno.
+  int names[] = {
+      _PC_ASYNC_IO, _PC_PRIO_IO, _PC_REC_INCR_XFER_SIZE, _PC_REC_MAX_XFER_SIZE, _PC_SYMLINK_MAX,
+      _PC_SYNC_IO,  -1};
+  for (size_t i = 0; names[i] != -1; i++) {
+    errno = 0;
+    ASSERT_EQ(-1, pathconf(tf.path, names[i])) << names[i];
+    ASSERT_ERRNO(0) << names[i];
+    ASSERT_EQ(-1, fpathconf(tf.fd, names[i])) << names[i];
+    ASSERT_ERRNO(0) << names[i];
+  }
 }
 
 TEST(UNISTD_TEST, _POSIX_constants) {
@@ -813,7 +885,9 @@ TEST(UNISTD_TEST, _POSIX_options) {
   EXPECT_EQ(_POSIX_VERSION, _POSIX_MONOTONIC_CLOCK);
 #endif
   EXPECT_GT(_POSIX_NO_TRUNC, 0);
+#if !defined(ANDROID_HOST_MUSL)
   EXPECT_EQ(_POSIX_VERSION, _POSIX_PRIORITY_SCHEDULING);
+#endif
   EXPECT_EQ(_POSIX_VERSION, _POSIX_RAW_SOCKETS);
   EXPECT_EQ(_POSIX_VERSION, _POSIX_READER_WRITER_LOCKS);
   EXPECT_EQ(_POSIX_VERSION, _POSIX_REALTIME_SIGNALS);
@@ -822,8 +896,10 @@ TEST(UNISTD_TEST, _POSIX_options) {
   EXPECT_EQ(_POSIX_VERSION, _POSIX_SEMAPHORES);
   EXPECT_GT(_POSIX_SHELL, 0);
   EXPECT_EQ(_POSIX_VERSION, _POSIX_SPAWN);
+#if !defined(ANDROID_HOST_MUSL)
   EXPECT_EQ(-1, _POSIX_SPORADIC_SERVER);
   EXPECT_EQ(_POSIX_VERSION, _POSIX_SYNCHRONIZED_IO);
+#endif
   EXPECT_EQ(_POSIX_VERSION, _POSIX_THREADS);
   EXPECT_EQ(_POSIX_VERSION, _POSIX_THREAD_ATTR_STACKADDR);
   EXPECT_EQ(_POSIX_VERSION, _POSIX_THREAD_ATTR_STACKSIZE);
@@ -832,27 +908,37 @@ TEST(UNISTD_TEST, _POSIX_options) {
 #endif
   EXPECT_EQ(_POSIX_VERSION, _POSIX_THREAD_PRIORITY_SCHEDULING);
   EXPECT_EQ(_POSIX_VERSION, _POSIX_THREAD_PROCESS_SHARED);
+#if !defined(ANDROID_HOST_MUSL)
   EXPECT_EQ(-1, _POSIX_THREAD_ROBUST_PRIO_PROTECT);
+#endif
   EXPECT_EQ(_POSIX_VERSION, _POSIX_THREAD_SAFE_FUNCTIONS);
+#if !defined(ANDROID_HOST_MUSL)
   EXPECT_EQ(-1, _POSIX_THREAD_SPORADIC_SERVER);
+#endif
   EXPECT_EQ(_POSIX_VERSION, _POSIX_TIMEOUTS);
   EXPECT_EQ(_POSIX_VERSION, _POSIX_TIMERS);
+#if !defined(ANDROID_HOST_MUSL)
   EXPECT_EQ(-1, _POSIX_TRACE);
   EXPECT_EQ(-1, _POSIX_TRACE_EVENT_FILTER);
   EXPECT_EQ(-1, _POSIX_TRACE_INHERIT);
   EXPECT_EQ(-1, _POSIX_TRACE_LOG);
   EXPECT_EQ(-1, _POSIX_TYPED_MEMORY_OBJECTS);
+#endif
   EXPECT_NE(-1, _POSIX_VDISABLE);
 
   EXPECT_EQ(_POSIX_VERSION, _POSIX2_VERSION);
   EXPECT_EQ(_POSIX_VERSION, _POSIX2_C_BIND);
+#if !defined(ANDROID_HOST_MUSL)
   EXPECT_EQ(_POSIX_VERSION, _POSIX2_CHAR_TERM);
+#endif
 
   EXPECT_EQ(700, _XOPEN_VERSION);
   EXPECT_EQ(1, _XOPEN_ENH_I18N);
+#if !defined(ANDROID_HOST_MUSL)
   EXPECT_EQ(1, _XOPEN_REALTIME);
   EXPECT_EQ(1, _XOPEN_REALTIME_THREADS);
   EXPECT_EQ(1, _XOPEN_SHM);
+#endif
   EXPECT_EQ(1, _XOPEN_UNIX);
 
 #if defined(__BIONIC__)
@@ -912,7 +998,7 @@ TEST(UNISTD_TEST, sysconf) {
   VERIFY_SYSCONF_POSIX_VERSION(_SC_CPUTIME);
   VERIFY_SYSCONF_POSITIVE(_SC_EXPR_NEST_MAX);
   VERIFY_SYSCONF_POSITIVE(_SC_LINE_MAX);
-  VERIFY_SYSCONF_POSITIVE(_SC_NGROUPS_MAX);
+  VerifySysconf(_SC_NGROUPS_MAX, "_SC_NGROUPS_MAX", [](long v){return v >= 0 && v <= NGROUPS_MAX;});
   VERIFY_SYSCONF_POSITIVE(_SC_OPEN_MAX);
   VERIFY_SYSCONF_POSITIVE(_SC_PASS_MAX);
   VERIFY_SYSCONF_POSIX_VERSION(_SC_2_C_BIND);
@@ -1050,6 +1136,10 @@ TEST(UNISTD_TEST, get_cpu_count_from_string) {
   ASSERT_EQ(4, GetCpuCountFromString("0, 1-2, 4\n"));
 }
 
+TEST(UNISTD_TEST, sysconf_SC_NPROCESSORS_make_sense) {
+  ASSERT_LE(sysconf(_SC_NPROCESSORS_ONLN), sysconf(_SC_NPROCESSORS_CONF));
+}
+
 TEST(UNISTD_TEST, sysconf_SC_NPROCESSORS_ONLN) {
   std::string line;
   ASSERT_TRUE(android::base::ReadFileToString("/sys/devices/system/cpu/online", &line));
@@ -1067,8 +1157,8 @@ TEST(UNISTD_TEST, sysconf_SC_NPROCESSORS_ONLN) {
 
 TEST(UNISTD_TEST, sysconf_SC_ARG_MAX) {
   // Since Linux 2.6.23, ARG_MAX isn't a constant and depends on RLIMIT_STACK.
-  // See prepare_arg_pages() in the kernel for the gory details:
-  // https://elixir.bootlin.com/linux/v5.3.11/source/fs/exec.c#L451
+  // See setup_arg_pages() in the kernel for the gory details:
+  // https://elixir.bootlin.com/linux/v6.6.4/source/fs/exec.c#L749
 
   // Get our current limit, and set things up so we restore the limit.
   rlimit rl;
@@ -1085,24 +1175,53 @@ TEST(UNISTD_TEST, sysconf_SC_ARG_MAX) {
   // _SC_ARG_MAX should be 1/4 the stack size.
   EXPECT_EQ(static_cast<long>(rl.rlim_cur / 4), sysconf(_SC_ARG_MAX));
 
-  // If you have a really small stack, the kernel still guarantees "32 pages" (see fs/exec.c).
+  // If you have a really small stack, the kernel still guarantees a stack
+  // expansion of 128KiB (see setup_arg_pages() in fs/exec.c).
   rl.rlim_cur = 1024;
   rl.rlim_max = RLIM_INFINITY;
   ASSERT_EQ(0, setrlimit(RLIMIT_STACK, &rl));
 
-  EXPECT_EQ(static_cast<long>(32 * sysconf(_SC_PAGE_SIZE)), sysconf(_SC_ARG_MAX));
+  // The stack expansion number is defined in fs/exec.c.
+  // https://elixir.bootlin.com/linux/v6.6.4/source/fs/exec.c#L845
+  constexpr long kernel_stack_expansion = 131072;
+  EXPECT_EQ(kernel_stack_expansion, sysconf(_SC_ARG_MAX));
 
-  // With a 128-page stack limit, we know exactly what _SC_ARG_MAX should be...
-  rl.rlim_cur = 128 * sysconf(_SC_PAGE_SIZE);
+  // If you have a large stack, the kernel will keep the stack
+  // expansion to 128KiB (see setup_arg_pages() in fs/exec.c).
+  rl.rlim_cur = 524288;
   rl.rlim_max = RLIM_INFINITY;
   ASSERT_EQ(0, setrlimit(RLIMIT_STACK, &rl));
 
-  EXPECT_EQ(static_cast<long>((128 * sysconf(_SC_PAGE_SIZE)) / 4), sysconf(_SC_ARG_MAX));
+  EXPECT_EQ(kernel_stack_expansion, sysconf(_SC_ARG_MAX));
 }
 
 TEST(UNISTD_TEST, sysconf_unknown) {
   VERIFY_SYSCONF_UNKNOWN(-1);
   VERIFY_SYSCONF_UNKNOWN(666);
+}
+
+[[maybe_unused]] static void show_cache(const char* name, long size, long assoc, long line_size) {
+  printf("%s cache size: %ld bytes, line size %ld bytes, ", name, size, line_size);
+  if (assoc == 0) {
+    printf("fully");
+  } else {
+    printf("%ld-way", assoc);
+  }
+  printf(" associative\n");
+}
+
+TEST(UNISTD_TEST, sysconf_cache) {
+#if defined(ANDROID_HOST_MUSL)
+  GTEST_SKIP() << "musl does not have _SC_LEVEL?_?CACHE_SIZE";
+#else
+  // It's not obvious we can _test_ any of these, but we can at least
+  // show the output for humans to inspect.
+  show_cache("L1D", sysconf(_SC_LEVEL1_DCACHE_SIZE), sysconf(_SC_LEVEL1_DCACHE_ASSOC), sysconf(_SC_LEVEL1_DCACHE_LINESIZE));
+  show_cache("L1I", sysconf(_SC_LEVEL1_ICACHE_SIZE), sysconf(_SC_LEVEL1_ICACHE_ASSOC), sysconf(_SC_LEVEL1_ICACHE_LINESIZE));
+  show_cache("L2", sysconf(_SC_LEVEL2_CACHE_SIZE), sysconf(_SC_LEVEL2_CACHE_ASSOC), sysconf(_SC_LEVEL2_CACHE_LINESIZE));
+  show_cache("L3", sysconf(_SC_LEVEL3_CACHE_SIZE), sysconf(_SC_LEVEL3_CACHE_ASSOC), sysconf(_SC_LEVEL3_CACHE_LINESIZE));
+  show_cache("L4", sysconf(_SC_LEVEL4_CACHE_SIZE), sysconf(_SC_LEVEL4_CACHE_ASSOC), sysconf(_SC_LEVEL4_CACHE_LINESIZE));
+#endif
 }
 
 TEST(UNISTD_TEST, dup2_same) {
@@ -1121,16 +1240,16 @@ TEST(UNISTD_TEST, dup2_same) {
   // Equal, but invalid.
   errno = 0;
   ASSERT_EQ(-1, dup2(fd, fd));
-  ASSERT_EQ(EBADF, errno);
+  ASSERT_ERRNO(EBADF);
 }
 
 TEST(UNISTD_TEST, dup3) {
   int fd = open("/proc/version", O_RDONLY);
   ASSERT_EQ(666, dup3(fd, 666, 0));
-  AssertCloseOnExec(666, false);
+  ASSERT_FALSE(CloseOnExec(666));
   close(666);
   ASSERT_EQ(667, dup3(fd, 667, O_CLOEXEC));
-  AssertCloseOnExec(667, true);
+  ASSERT_TRUE(CloseOnExec(667));
   close(667);
   close(fd);
 }
@@ -1212,11 +1331,11 @@ TEST(UNISTD_TEST, lockf_with_child) {
     // Check that the child cannot lock the file.
     ASSERT_EQ(0, lseek64(tf.fd, 0, SEEK_SET));
     ASSERT_EQ(-1, lockf64(tf.fd, F_TLOCK, file_size));
-    ASSERT_EQ(EAGAIN, errno);
+    ASSERT_ERRNO(EAGAIN);
     // Check also that it reports itself as locked.
     ASSERT_EQ(0, lseek64(tf.fd, 0, SEEK_SET));
     ASSERT_EQ(-1, lockf64(tf.fd, F_TEST, file_size));
-    ASSERT_EQ(EACCES, errno);
+    ASSERT_ERRNO(EACCES);
     _exit(0);
   }
   AssertChildExited(pid, 0);
@@ -1242,11 +1361,11 @@ TEST(UNISTD_TEST, lockf_partial_with_child) {
     // Check that the child cannot lock the first half.
     ASSERT_EQ(0, lseek64(tf.fd, 0, SEEK_SET));
     ASSERT_EQ(-1, lockf64(tf.fd, F_TEST, file_size/2));
-    ASSERT_EQ(EACCES, errno);
+    ASSERT_ERRNO(EACCES);
     // Check also that it reports itself as locked.
     ASSERT_EQ(0, lseek64(tf.fd, 0, SEEK_SET));
     ASSERT_EQ(-1, lockf64(tf.fd, F_TEST, file_size/2));
-    ASSERT_EQ(EACCES, errno);
+    ASSERT_ERRNO(EACCES);
     _exit(0);
   }
   AssertChildExited(pid, 0);
@@ -1268,7 +1387,7 @@ TEST(UNISTD_TEST, getdomainname) {
 #if defined(__BIONIC__)
   // bionic and glibc have different behaviors when len is too small
   ASSERT_EQ(-1, getdomainname(buf, strlen(u.domainname)));
-  EXPECT_EQ(EINVAL, errno);
+  EXPECT_ERRNO(EINVAL);
 #endif
 }
 
@@ -1293,7 +1412,7 @@ TEST(UNISTD_TEST, setdomainname) {
 
   const char* name = "newdomainname";
   ASSERT_EQ(-1, setdomainname(name, strlen(name)));
-  ASSERT_EQ(EPERM, errno);
+  ASSERT_ERRNO(EPERM);
 
   if (has_admin) {
     ASSERT_EQ(0, capset(&header, &old_caps[0])) << "failed to restore admin privileges";
@@ -1304,7 +1423,12 @@ TEST(UNISTD_TEST, execve_failure) {
   ExecTestHelper eth;
   errno = 0;
   ASSERT_EQ(-1, execve("/", eth.GetArgs(), eth.GetEnv()));
-  ASSERT_EQ(EACCES, errno);
+  ASSERT_ERRNO(EACCES);
+}
+
+static void append_llvm_cov_env_var(std::string& env_str) {
+  if (getenv("LLVM_PROFILE_FILE") != nullptr)
+    env_str.append("__LLVM_PROFILE_RT_INIT_ONCE=__LLVM_PROFILE_RT_INIT_ONCE\n");
 }
 
 TEST(UNISTD_TEST, execve_args) {
@@ -1318,13 +1442,18 @@ TEST(UNISTD_TEST, execve_args) {
   // Test environment variable setting too.
   eth.SetArgs({"printenv", nullptr});
   eth.SetEnv({"A=B", nullptr});
-  eth.Run([&]() { execve(BIN_DIR "printenv", eth.GetArgs(), eth.GetEnv()); }, 0, "A=B\n");
+
+  std::string expected_output("A=B\n");
+  append_llvm_cov_env_var(expected_output);
+
+  eth.Run([&]() { execve(BIN_DIR "printenv", eth.GetArgs(), eth.GetEnv()); }, 0,
+          expected_output.c_str());
 }
 
 TEST(UNISTD_TEST, execl_failure) {
   errno = 0;
   ASSERT_EQ(-1, execl("/", "/", nullptr));
-  ASSERT_EQ(EACCES, errno);
+  ASSERT_ERRNO(EACCES);
 }
 
 TEST(UNISTD_TEST, execl) {
@@ -1337,21 +1466,26 @@ TEST(UNISTD_TEST, execle_failure) {
   ExecTestHelper eth;
   errno = 0;
   ASSERT_EQ(-1, execle("/", "/", nullptr, eth.GetEnv()));
-  ASSERT_EQ(EACCES, errno);
+  ASSERT_ERRNO(EACCES);
 }
 
 TEST(UNISTD_TEST, execle) {
   ExecTestHelper eth;
   eth.SetEnv({"A=B", nullptr});
+
+  std::string expected_output("A=B\n");
+  append_llvm_cov_env_var(expected_output);
+
   // int execle(const char* path, const char* arg, ..., char* envp[]);
-  eth.Run([&]() { execle(BIN_DIR "printenv", "printenv", nullptr, eth.GetEnv()); }, 0, "A=B\n");
+  eth.Run([&]() { execle(BIN_DIR "printenv", "printenv", nullptr, eth.GetEnv()); }, 0,
+          expected_output.c_str());
 }
 
 TEST(UNISTD_TEST, execv_failure) {
   ExecTestHelper eth;
   errno = 0;
   ASSERT_EQ(-1, execv("/", eth.GetArgs()));
-  ASSERT_EQ(EACCES, errno);
+  ASSERT_ERRNO(EACCES);
 }
 
 TEST(UNISTD_TEST, execv) {
@@ -1364,7 +1498,7 @@ TEST(UNISTD_TEST, execv) {
 TEST(UNISTD_TEST, execlp_failure) {
   errno = 0;
   ASSERT_EQ(-1, execlp("/", "/", nullptr));
-  ASSERT_EQ(EACCES, errno);
+  ASSERT_ERRNO(EACCES);
 }
 
 TEST(UNISTD_TEST, execlp) {
@@ -1378,7 +1512,7 @@ TEST(UNISTD_TEST, execvp_failure) {
   eth.SetArgs({nullptr});
   errno = 0;
   ASSERT_EQ(-1, execvp("/", eth.GetArgs()));
-  ASSERT_EQ(EACCES, errno);
+  ASSERT_ERRNO(EACCES);
 }
 
 TEST(UNISTD_TEST, execvp) {
@@ -1393,7 +1527,7 @@ TEST(UNISTD_TEST, execvpe_failure) {
   errno = 0;
   ASSERT_EQ(-1, execvpe("this-does-not-exist", eth.GetArgs(), eth.GetEnv()));
   // Running in CTS we might not even be able to search all directories in $PATH.
-  ASSERT_TRUE(errno == ENOENT || errno == EACCES);
+  ASSERT_TRUE(errno == ENOENT || errno == EACCES) << strerror(errno);
 }
 
 TEST(UNISTD_TEST, execvpe) {
@@ -1407,7 +1541,11 @@ TEST(UNISTD_TEST, execvpe) {
   // Test environment variable setting too.
   eth.SetArgs({"printenv", nullptr});
   eth.SetEnv({"A=B", nullptr});
-  eth.Run([&]() { execvpe("printenv", eth.GetArgs(), eth.GetEnv()); }, 0, "A=B\n");
+
+  std::string expected_output("A=B\n");
+  append_llvm_cov_env_var(expected_output);
+
+  eth.Run([&]() { execvpe("printenv", eth.GetArgs(), eth.GetEnv()); }, 0, expected_output.c_str());
 }
 
 TEST(UNISTD_TEST, execvpe_ENOEXEC) {
@@ -1424,7 +1562,7 @@ TEST(UNISTD_TEST, execvpe_ENOEXEC) {
   // It's not inherently executable.
   errno = 0;
   ASSERT_EQ(-1, execvpe(basename(tf.path), eth.GetArgs(), eth.GetEnv()));
-  ASSERT_EQ(EACCES, errno);
+  ASSERT_ERRNO(EACCES);
 
   // Make it executable (and keep it writable because we're going to rewrite it below).
   ASSERT_EQ(0, chmod(tf.path, 0777));
@@ -1432,7 +1570,7 @@ TEST(UNISTD_TEST, execvpe_ENOEXEC) {
   // TemporaryFile will have a writable fd, so we can test ETXTBSY while we're here...
   errno = 0;
   ASSERT_EQ(-1, execvpe(basename(tf.path), eth.GetArgs(), eth.GetEnv()));
-  ASSERT_EQ(ETXTBSY, errno);
+  ASSERT_ERRNO(ETXTBSY);
 
   // 1. The simplest test: the kernel should handle this.
   ASSERT_EQ(0, close(tf.fd));
@@ -1453,15 +1591,25 @@ TEST(UNISTD_TEST, execvp_libcore_test_55017) {
 
   errno = 0;
   ASSERT_EQ(-1, execvp("/system/bin/does-not-exist", eth.GetArgs()));
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
 }
 
 TEST(UNISTD_TEST, exec_argv0_null) {
-  // http://b/33276926
+  // http://b/33276926 and http://b/227498625.
+  //
+  // With old kernels, bionic will see the null pointer and use "<unknown>" but
+  // with new (5.18+) kernels, the kernel will already have substituted the
+  // empty string, so we don't make any assertion here about what (if anything)
+  // comes before the first ':'.
+  //
+  // If this ever causes trouble, we could change bionic to replace _either_ the
+  // null pointer or the empty string. We could also use the actual name from
+  // readlink() on /proc/self/exe if we ever had reason to disallow programs
+  // from trying to hide like this.
   char* args[] = {nullptr};
   char* envs[] = {nullptr};
   ASSERT_EXIT(execve("/system/bin/run-as", args, envs), testing::ExitedWithCode(1),
-              "<unknown>: usage: run-as");
+              ": usage: run-as");
 }
 
 TEST(UNISTD_TEST, fexecve_failure) {
@@ -1470,7 +1618,7 @@ TEST(UNISTD_TEST, fexecve_failure) {
   int fd = open("/", O_RDONLY);
   ASSERT_NE(-1, fd);
   ASSERT_EQ(-1, fexecve(fd, eth.GetArgs(), eth.GetEnv()));
-  ASSERT_EQ(EACCES, errno);
+  ASSERT_ERRNO(EACCES);
   close(fd);
 }
 
@@ -1478,7 +1626,7 @@ TEST(UNISTD_TEST, fexecve_bad_fd) {
   ExecTestHelper eth;
   errno = 0;
   ASSERT_EQ(-1, fexecve(-1, eth.GetArgs(), eth.GetEnv()));
-  ASSERT_EQ(EBADF, errno);
+  ASSERT_ERRNO(EBADF);
 }
 
 TEST(UNISTD_TEST, fexecve_args) {
@@ -1495,7 +1643,11 @@ TEST(UNISTD_TEST, fexecve_args) {
   ASSERT_NE(-1, printenv_fd);
   eth.SetArgs({"printenv", nullptr});
   eth.SetEnv({"A=B", nullptr});
-  eth.Run([&]() { fexecve(printenv_fd, eth.GetArgs(), eth.GetEnv()); }, 0, "A=B\n");
+
+  std::string expected_output("A=B\n");
+  append_llvm_cov_env_var(expected_output);
+
+  eth.Run([&]() { fexecve(printenv_fd, eth.GetArgs(), eth.GetEnv()); }, 0, expected_output.c_str());
   close(printenv_fd);
 }
 
@@ -1561,4 +1713,39 @@ TEST(UNISTD_TEST, sleep) {
   ASSERT_EQ(0U, sleep(1));
   auto t1 = std::chrono::steady_clock::now();
   ASSERT_GE(t1-t0, 1s);
+}
+
+TEST(UNISTD_TEST, close_range) {
+#if defined(__GLIBC__)
+  GTEST_SKIP() << "glibc too old";
+#elif defined(ANDROID_HOST_MUSL)
+  GTEST_SKIP() << "musl does not have close_range";
+#else   // __GLIBC__
+  int fd = open("/proc/version", O_RDONLY);
+  ASSERT_GE(fd, 0);
+
+  int rc = close_range(fd, fd, 0);
+  if (rc == -1 && errno == ENOSYS) GTEST_SKIP() << "no close_range() in this kernel";
+  ASSERT_EQ(0, rc) << strerror(errno);
+
+  // Check the fd is actually closed.
+  ASSERT_EQ(close(fd), -1);
+  ASSERT_ERRNO(EBADF);
+#endif  // __GLIBC__
+}
+
+TEST(UNISTD_TEST, copy_file_range) {
+#if defined(__GLIBC__)
+  GTEST_SKIP() << "glibc too old";
+#else   // __GLIBC__
+  TemporaryFile tf;
+  ASSERT_TRUE(android::base::WriteStringToFd("hello world", tf.fd));
+  ASSERT_EQ(0, lseek(tf.fd, SEEK_SET, 0));
+  TemporaryFile tf2;
+  ASSERT_EQ(11, copy_file_range(tf.fd, NULL, tf2.fd, NULL, 11, 0));
+  ASSERT_EQ(0, lseek(tf2.fd, SEEK_SET, 0));
+  std::string content;
+  ASSERT_TRUE(android::base::ReadFdToString(tf2.fd, &content));
+  ASSERT_EQ("hello world", content);
+#endif  // __GLIBC__
 }

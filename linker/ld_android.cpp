@@ -44,6 +44,7 @@ __strong_alias(__loader_android_link_namespaces_all_libs, __internal_linker_erro
 __strong_alias(__loader_android_set_application_target_sdk_version, __internal_linker_error);
 __strong_alias(__loader_android_update_LD_LIBRARY_PATH, __internal_linker_error);
 __strong_alias(__loader_cfi_fail, __internal_linker_error);
+__strong_alias(__loader_android_handle_signal, __internal_linker_error);
 __strong_alias(__loader_dl_iterate_phdr, __internal_linker_error);
 __strong_alias(__loader_dladdr, __internal_linker_error);
 __strong_alias(__loader_dlclose, __internal_linker_error);
@@ -58,15 +59,3 @@ __strong_alias(__loader_shared_globals, __internal_linker_error);
 __strong_alias(__loader_dl_unwind_find_exidx, __internal_linker_error);
 #endif
 __strong_alias(rtld_db_dlactivity, __internal_linker_error);
-
-#if defined(__arm__)
-// An arm32 unwinding table has an R_ARM_NONE relocation to
-// __aeabi_unwind_cpp_pr0. This shared library will never invoke the unwinder,
-// so it doesn't actually need the routine. Define a dummy version here,
-// because the real version calls libc functions (e.g. memcpy, abort), which
-// would create a dependency cycle with libc.so.
-__attribute__((visibility("hidden")))
-extern "C" void __aeabi_unwind_cpp_pr0() {
-  __builtin_trap();
-}
-#endif

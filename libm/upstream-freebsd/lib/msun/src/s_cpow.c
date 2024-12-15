@@ -43,9 +43,6 @@
  *
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_cpow.c 336563 2018-07-20 18:27:30Z dim $");
-
 #include <complex.h>
 #include <float.h>
 #include <math.h>

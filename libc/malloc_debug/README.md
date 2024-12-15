@@ -114,7 +114,7 @@ the backtrace and information about the original allocation. After that, this
 option will not add a special header.
 
 As of P, this option will also enable dumping backtrace heap data to a
-file when the process receives the signal SIGRTMAX - 17 ( which is 47 on most
+file when the process receives the signal SIGRTMAX - 17 ( which is 47 on
 Android devices). The format of this dumped data is the same format as
 that dumped when running am dumpheap -n. The default is to dump this data
 to the file /data/local/tmp/backtrace\_heap.**PID**.txt. This is useful when
@@ -127,7 +127,7 @@ malloc/free occurs.
 ### backtrace\_enable\_on\_signal[=MAX\_FRAMES]
 Enable capturing the backtrace of each allocation site. If the
 backtrace capture is toggled when the process receives the signal
-SIGRTMAX - 19 (which is 45 on most Android devices). When this
+SIGRTMAX - 19 (which is 45 on Android devices). When this
 option is used alone, backtrace capture starts out disabled until the signal
 is received. If both this option and the backtrace option are set, then
 backtrace capture is enabled until the signal is received.
@@ -160,10 +160,82 @@ When this value is changed from the default, then the filename chosen
 on the signal will be backtrace\_dump\_prefix.**PID**.txt. The filename chosen
 when the program exits will be backtrace\_dump\_prefix.**PID**.exit.txt.
 
+### backtrace\_min\_size=ALLOCATION\_SIZE\_BYTES
+As of U, setting this in combination with the backtrace option means
+that only allocations of a size greater than or equal to
+**ALLOCATION\_SIZE\_BYTES** will be backtraced. When used in combination
+with the backtrace\_max\_size option, then allocations greater than or
+equal to backtrace\_min\_size and less than or equal to
+backtrace\_max\_size will be backtraced. The backtrace\_size option
+overrides this option, and should not be used at the same time.
+
+This option can also be used in combination with other tools such
+as [libmemunreachable](https://android.googlesource.com/platform/system/memory/libmemunreachable/+/main/README.md)
+to only get backtraces for sizes of allocations listed as being leaked.
+
+### backtrace\_max\_size=ALLOCATION\_SIZE\_BYTES
+As of U, setting this in combination with the backtrace option means
+that only allocations of a size less than or equal to
+**ALLOCATION\_SIZE\_BYTES** will be backtraced. When used in combination
+with the backtrace\_min\_size option, then allocations greater than or
+equal to backtrace\_min\_size and less than or equal to
+backtrace\_max\_size will be backtraced. The backtrace\_size option
+overrides this option, and should not be used at the same time.
+
+This option can also be used in combination with other tools such
+as [libmemunreachable](https://android.googlesource.com/platform/system/memory/libmemunreachable/+/main/README.md)
+to only get backtraces for sizes of allocations listed as being leaked.
+
+### backtrace\_size=ALLOCATION\_SIZE\_BYTES
+As of U, setting this in combination with the backtrace option means
+that only allocations of size **ALLOCATION\_SIZE\_BYTES** will be backtraced.
+This option overrides the backtrace\_min\_size and the backtrace\_max\_size.
+
+This option can also be used in combination with other tools such
+as [libmemunreachable](https://android.googlesource.com/platform/system/memory/libmemunreachable/+/main/README.md)
+to only get backtraces for sizes of allocations listed as being leaked.
+
 ### backtrace\_full
 As of Q, any time that a backtrace is gathered, a different algorithm is used
 that is extra thorough and can unwind through Java frames. This will run
 slower than the normal backtracing function.
+
+### bt, bt\_dmp\_on\_ex, bt\_dmp\_pre, bt\_en\_on\_sig, bt\_full, bt\_max\_sz, bt\_min\_sz, bt\_sz
+As of U, add shorter aliases for backtrace related options to avoid property length restrictions.
+
+| Alias           | Option                        |
+|:----------------|:------------------------------|
+| bt              | backtrace                     |
+| bt\_dmp\_on\_ex | backtrace\_dump\_on\_exit     |
+| bt\_dmp\_pre    | backtrace\_dump\_prefix       |
+| bt\_en\_on\_sig | backtrace\_enable\_on\_signal |
+| bt\_full        | backtrace\_full               |
+| bt\_max\_sz     | backtrace\_max\_size          |
+| bt\_min\_sz     | backtrace\_min\_size          |
+| bt\_sz          | backtrace\_size               |
+
+### check\_unreachable\_on\_signal
+As of Android U, this option will trigger a check for unreachable memory
+in a process. Specifically, if the signal SIGRTMAX - 16 (which is 48 on
+Android devices). The best way to see the exact signal being used is to
+enable the verbose option then look at the log for the message:
+
+    Run: 'kill -48 <PID>' to check for unreachable memory.
+
+When the signal is received, the actual unreachable check only triggers
+on the next allocation that happens in the process (malloc/free, etc).
+
+If a process is not doing any allocations, it can be forced to trigger when
+running:
+
+    debuggerd -b <PID>
+
+**NOTE**: The unreachable check can fail for protected processes, so it
+might be necessary to run:
+
+    setenforce 0
+
+To get the unreachable data.
 
 ### fill\_on\_alloc[=MAX\_FILLED\_BYTES]
 Any allocation routine, other than calloc, will result in the allocation being
@@ -268,9 +340,19 @@ Example leak error found in the log:
     04-15 12:35:33.305  7412  7412 E malloc_debug:           #02  pc 000a9e38  /system/lib/libc++.so
     04-15 12:35:33.305  7412  7412 E malloc_debug:           #03  pc 000a28a8  /system/lib/libc++.so
 
+### log\_allocator\_stats\_on\_signal
+As of Android V, this option will trigger a call to:
+
+    mallopt(M_LOG_STATS, 0);
+
+When a process receives the signal SIGRTMAX - 15 (which is 49 on Android
+devices). The mallopt call is not async safe and is not called from the
+signal handler directly. Instead, the next time any allocation call occurs,
+the mallopt is called.
+
 ### record\_allocs[=TOTAL\_ENTRIES]
 Keep track of every allocation/free made on every thread and dump them
-to a file when the signal SIGRTMAX - 18 (which is 46 on most Android devices)
+to a file when the signal SIGRTMAX - 18 (which is 46 on Android devices)
 is received.
 
 If TOTAL\_ENTRIES is set, then it indicates the total number of
@@ -373,6 +455,19 @@ If FILE\_NAME is set, then it indicates where the record allocation data
 will be placed.
 
 **NOTE**: This option is not available until the O release of Android.
+
+### record\_allocs\_on\_exit
+This option only has meaning if record\_allocs is set. It indicates that
+when the process terminates, the record file should be created
+automatically.
+
+The only caveat to this option is that when the process terminates,
+the file that will contain the records will be the normal file name
+with **.PID** appended. Where PID is the pid of the process that has
+terminated. This is to avoid cases where a number of processes exit
+at the same time and attempt to write to the same file.
+
+**NOTE**: This option is not available until the V release of Android.
 
 ### verify\_pointers
 Track all live allocations to determine if a pointer is used that does not
@@ -573,9 +668,6 @@ The second backtrace frame has a pc of 0xb510 and is in the map named
 /system/libutils.so which starts at 0xb000. The relative pc is 0x510 and
 it is in an unknown function.
 
-There is a tool to visualize this data,
-[native\_heapdump\_viewer.py](https://android.googlesource.com/platform/development/+/master/scripts/native_heapdump_viewer.py).
-
 Examples
 ========
 
@@ -644,6 +736,13 @@ App developers should check the NDK documentation about
 for the best way to use malloc debug in Android O or later on non-rooted
 devices.
 
+**NOTE**: Android 12 introduced a bug that can cause the wrap.\<APP\> property to
+no longer work. Use the commands below so that the wrap.\<APP\> instructions will work:
+
+    adb shell setprop dalvik.vm.force-java-zygote-fork-loop true
+    adb shell stop
+    adb shell start
+
 If you do have a rooted device, you can enable malloc debug for a specific
 program/application (Android O or later):
 
@@ -692,24 +791,3 @@ For backtraces from your app to be useful, you'll want to keep the
 symbols in your app's shared libraries rather than stripping them. That
 way you'll see the location of the leak directly without having to use
 something like the <code>ndk-stack</code> tool.
-
-### Analyzing heap dumps
-
-To analyze the data produced by the dumpheap command, run
-[development/scripts/native\_heapdump\_viewer.py](https://android.googlesource.com/platform/development/+/master/scripts/native_heapdump_viewer.py)
-
-In order for the script to properly symbolize the stacks in the file,
-make sure the script is executed from the tree that built the image.
-
-To collect, transfer, and analyze a dump:
-
-    adb shell am dumpheap -n <PID_TO_DUMP> /data/local/tmp/heap.txt
-    adb shell pull /data/local/tmp/heap.txt .
-    python development/scripts/native_heapdump_viewer.py --symbols /some/path/to/symbols/ heap.txt > heap_info.txt
-
-At the moment, the script will look for symbols in the given directory,
-using the path the .so file would have on the device. So if your .so file
-is at `/data/app/.../lib/arm/libx.so` on the device, it will need to be at
-`/some/path/to/symbols/data/app/.../lib/arm/libx.so` locally given the
-command line above. That is: you need to mirror the directory structure
-for the app in the symbols directory.

@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI_IP_SET_H
 #define _UAPI_IP_SET_H
 #include <linux/types.h>
@@ -80,12 +68,13 @@ enum {
   IPSET_ATTR_CADT_LINENO = IPSET_ATTR_LINENO,
   IPSET_ATTR_MARK,
   IPSET_ATTR_MARKMASK,
+  IPSET_ATTR_BITMASK,
   IPSET_ATTR_CADT_MAX = 16,
-  IPSET_ATTR_GC,
+  IPSET_ATTR_INITVAL,
   IPSET_ATTR_HASHSIZE,
   IPSET_ATTR_MAXELEM,
   IPSET_ATTR_NETMASK,
-  IPSET_ATTR_PROBES,
+  IPSET_ATTR_BUCKETSIZE,
   IPSET_ATTR_RESIZE,
   IPSET_ATTR_SIZE,
   IPSET_ATTR_ELEMENTS,
@@ -138,6 +127,7 @@ enum ipset_errno {
   IPSET_ERR_COMMENT,
   IPSET_ERR_INVALID_MARKMASK,
   IPSET_ERR_SKBINFO,
+  IPSET_ERR_BITMASK_NETMASK_EXCL,
   IPSET_ERR_TYPE_SPECIFIC = 4352,
 };
 enum ipset_cmd_flags {
@@ -178,11 +168,15 @@ enum ipset_cadt_flags {
   IPSET_FLAG_WITH_FORCEADD = (1 << IPSET_FLAG_BIT_WITH_FORCEADD),
   IPSET_FLAG_BIT_WITH_SKBINFO = 6,
   IPSET_FLAG_WITH_SKBINFO = (1 << IPSET_FLAG_BIT_WITH_SKBINFO),
+  IPSET_FLAG_BIT_IFACE_WILDCARD = 7,
+  IPSET_FLAG_IFACE_WILDCARD = (1 << IPSET_FLAG_BIT_IFACE_WILDCARD),
   IPSET_FLAG_CADT_MAX = 15,
 };
 enum ipset_create_flags {
   IPSET_CREATE_FLAG_BIT_FORCEADD = 0,
   IPSET_CREATE_FLAG_FORCEADD = (1 << IPSET_CREATE_FLAG_BIT_FORCEADD),
+  IPSET_CREATE_FLAG_BIT_BUCKETSIZE = 1,
+  IPSET_CREATE_FLAG_BUCKETSIZE = (1 << IPSET_CREATE_FLAG_BIT_BUCKETSIZE),
   IPSET_CREATE_FLAG_BIT_MAX = 7,
 };
 enum ipset_adt {

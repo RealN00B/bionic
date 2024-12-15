@@ -182,7 +182,12 @@ static int  __attribute__((noinline)) PIMutexTimedLock(PIMutex& mutex,
         return 0;
     }
     if (ret == EBUSY) {
-        ScopedTrace trace("Contending for pthread mutex");
+        char trace_msg[64];
+        const pid_t owner = atomic_load_explicit(&mutex.owner_tid, memory_order_relaxed)
+                & FUTEX_TID_MASK;
+        snprintf(trace_msg, sizeof(trace_msg),
+                 "Contending for pthread mutex owned by tid: %d", owner);
+        ScopedTrace trace(trace_msg);
         ret = -__futex_pi_lock_ex(&mutex.owner_tid, mutex.shared, use_realtime_clock, abs_timeout);
     }
     return ret;
@@ -945,6 +950,8 @@ int pthread_mutex_trylock(pthread_mutex_t* mutex_interface) {
 }
 
 #if !defined(__LP64__)
+// This exists only for backward binary compatibility on 32 bit platforms.
+// (This function never existed for LP64.)
 extern "C" int pthread_mutex_lock_timeout_np(pthread_mutex_t* mutex_interface, unsigned ms) {
     timespec ts;
     timespec_from_ms(ts, ms);

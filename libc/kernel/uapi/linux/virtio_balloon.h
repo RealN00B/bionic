@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _LINUX_VIRTIO_BALLOON_H
 #define _LINUX_VIRTIO_BALLOON_H
 #include <linux/types.h>
@@ -27,14 +15,18 @@
 #define VIRTIO_BALLOON_F_DEFLATE_ON_OOM 2
 #define VIRTIO_BALLOON_F_FREE_PAGE_HINT 3
 #define VIRTIO_BALLOON_F_PAGE_POISON 4
+#define VIRTIO_BALLOON_F_REPORTING 5
 #define VIRTIO_BALLOON_PFN_SHIFT 12
 #define VIRTIO_BALLOON_CMD_ID_STOP 0
 #define VIRTIO_BALLOON_CMD_ID_DONE 1
 struct virtio_balloon_config {
-  __u32 num_pages;
-  __u32 actual;
-  __u32 free_page_report_cmd_id;
-  __u32 poison_val;
+  __le32 num_pages;
+  __le32 actual;
+  union {
+    __le32 free_page_hint_cmd_id;
+    __le32 free_page_report_cmd_id;
+  };
+  __le32 poison_val;
 };
 #define VIRTIO_BALLOON_S_SWAP_IN 0
 #define VIRTIO_BALLOON_S_SWAP_OUT 1

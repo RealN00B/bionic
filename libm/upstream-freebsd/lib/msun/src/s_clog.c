@@ -24,9 +24,6 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_clog.c 333577 2018-05-13 09:54:34Z kib $");
-
 #include <complex.h>
 #include <float.h>
 

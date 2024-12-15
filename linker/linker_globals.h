@@ -54,7 +54,7 @@ void DL_WARN_documented_change(int api_level, const char* doc_link, const char* 
 #define DL_ERR_AND_LOG(fmt, x...) \
   do { \
     DL_ERR(fmt, ##x); \
-    PRINT(fmt, ##x); \
+    __linker_log(ANDROID_LOG_ERROR, fmt, ##x); \
   } while (false)
 
 #define DL_OPEN_ERR(fmt, x...) \
@@ -79,10 +79,13 @@ extern char** g_envp;
 
 struct soinfo;
 struct android_namespace_t;
+struct platform_properties;
 
 extern android_namespace_t g_default_namespace;
 
 extern std::unordered_map<uintptr_t, soinfo*> g_soinfo_handles_map;
+
+extern platform_properties g_platform_properties;
 
 // Error buffer "variable"
 char* linker_get_error_buffer();
@@ -101,3 +104,4 @@ class DlErrorRestorer {
 };
 
 __LIBC_HIDDEN__ extern bool g_is_ldd;
+__LIBC_HIDDEN__ extern pthread_mutex_t g_dl_mutex;

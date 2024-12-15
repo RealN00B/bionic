@@ -51,21 +51,7 @@
 #define ELFW(what) ELF32_ ## what
 #endif
 
-// mips64 interprets Elf64_Rel structures' r_info field differently.
-// bionic (like other C libraries) has macros that assume regular ELF files,
-// but the dynamic linker needs to be able to load mips64 ELF files.
-#if defined(__mips__) && defined(__LP64__)
-#undef ELF64_R_SYM
-#undef ELF64_R_TYPE
-#undef ELF64_R_INFO
-#define ELF64_R_SYM(info)   (((info) >> 0) & 0xffffffff)
-#define ELF64_R_SSYM(info)  (((info) >> 32) & 0xff)
-#define ELF64_R_TYPE3(info) (((info) >> 40) & 0xff)
-#define ELF64_R_TYPE2(info) (((info) >> 48) & 0xff)
-#define ELF64_R_TYPE(info)  (((info) >> 56) & 0xff)
-#endif
-
-#define SUPPORTED_DT_FLAGS_1 (DF_1_NOW | DF_1_GLOBAL | DF_1_NODELETE | DF_1_PIE)
+#define SUPPORTED_DT_FLAGS_1 (DF_1_NOW | DF_1_GLOBAL | DF_1_NODELETE | DF_1_PIE | DF_1_ORIGIN)
 
 // Class used construct version dependency graph.
 class VersionTracker {
@@ -84,6 +70,10 @@ class VersionTracker {
 
   DISALLOW_COPY_AND_ASSIGN(VersionTracker);
 };
+
+static constexpr const char* kBionicChangesUrl =
+    "https://android.googlesource.com/platform/bionic/+/main/"
+    "android-changes-for-ndk-developers.md";
 
 soinfo* get_libdl_info(const soinfo& linker_si);
 
@@ -113,12 +103,10 @@ bool do_dlsym(void* handle, const char* sym_name,
 
 int do_dladdr(const void* addr, Dl_info* info);
 
-// void ___cfi_slowpath(uint64_t CallSiteTypeId, void *Ptr, void *Ret);
-// void ___cfi_slowpath_diag(uint64_t CallSiteTypeId, void *Ptr, void *DiagData, void *Ret);
-void ___cfi_fail(uint64_t CallSiteTypeId, void* Ptr, void *DiagData, void *Ret);
-
 void set_application_target_sdk_version(int target);
 int get_application_target_sdk_version();
+
+bool get_transparent_hugepages_supported();
 
 enum {
   /* A regular namespace is the namespace with a custom search path that does
@@ -143,10 +131,10 @@ enum {
    */
   ANDROID_NAMESPACE_TYPE_SHARED = 2,
 
-  /* This flag instructs linker to enable grey-list workaround for the namespace.
+  /* This flag instructs linker to enable exempt-list workaround for the namespace.
    * See http://b/26394120 for details.
    */
-  ANDROID_NAMESPACE_TYPE_GREYLIST_ENABLED = 0x08000000,
+  ANDROID_NAMESPACE_TYPE_EXEMPT_LIST_ENABLED = 0x08000000,
 
   /* This flag instructs linker to use this namespace as the anonymous
    * namespace. There can be only one anonymous namespace in a process. If there
@@ -191,3 +179,10 @@ struct address_space_params {
 int get_application_target_sdk_version();
 ElfW(Versym) find_verdef_version_index(const soinfo* si, const version_info* vi);
 bool validate_verdef_section(const soinfo* si);
+bool relocate_relr(const ElfW(Relr)* begin, const ElfW(Relr)* end, ElfW(Addr) load_bias);
+
+struct platform_properties {
+#if defined(__aarch64__)
+  bool bti_supported = false;
+#endif
+};

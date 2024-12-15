@@ -55,9 +55,6 @@ __RCSID("$NetBSD: sethostent.c,v 1.20 2014/03/17 13:24:23 christos Exp $");
 #include "hostent.h"
 #include "resolv_private.h"
 
-#define ALIGNBYTES (sizeof(uintptr_t) - 1)
-#define ALIGN(p) (((uintptr_t)(p) + ALIGNBYTES) &~ ALIGNBYTES)
-
 #ifndef _REENTRANT
 void	res_close(void);
 #endif
@@ -68,14 +65,14 @@ void
 /*ARGSUSED*/
 sethostent(int stayopen)
 {
-	res_static rs = __res_get_static();
+	struct res_static* rs = __res_get_static();
 	if (rs) sethostent_r(&rs->hostf);
 }
 
 void
 endhostent(void)
 {
-	res_static rs = __res_get_static();
+	struct res_static* rs = __res_get_static();
 	if (rs) endhostent_r(&rs->hostf);
 }
 
@@ -160,6 +157,7 @@ _hf_gethtbyname2(const char *name, int af, struct getnamaddr *info)
 
 	if ((ptr = buf = malloc(len = info->buflen)) == NULL) {
 		*info->he = NETDB_INTERNAL;
+		endhostent_r(&hf);
 		return NULL;
 	}
 
@@ -244,6 +242,7 @@ _hf_gethtbyname2(const char *name, int af, struct getnamaddr *info)
 	return hp;
 nospc:
 	*info->he = NETDB_INTERNAL;
+	endhostent_r(&hf);
 	free(buf);
 	errno = ENOSPC;
 	return NULL;

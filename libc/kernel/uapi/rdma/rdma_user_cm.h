@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef RDMA_USER_CM_H
 #define RDMA_USER_CM_H
 #include <linux/types.h>
@@ -127,6 +115,8 @@ struct rdma_ucm_query_route_resp {
   __u32 num_paths;
   __u8 port_num;
   __u8 reserved[3];
+  __u32 ibdev_index;
+  __u32 reserved1;
 };
 struct rdma_ucm_query_addr_resp {
   __aligned_u64 node_guid;
@@ -137,11 +127,13 @@ struct rdma_ucm_query_addr_resp {
   __u16 dst_size;
   struct sockaddr_storage src_addr;
   struct sockaddr_storage dst_addr;
+  __u32 ibdev_index;
+  __u32 reserved1;
 };
 struct rdma_ucm_query_path_resp {
   __u32 num_paths;
   __u32 reserved;
-  struct ib_path_rec_data path_data[0];
+  struct ib_path_rec_data path_data[];
 };
 struct rdma_ucm_conn_param {
   __u32 qp_num;
@@ -164,10 +156,15 @@ struct rdma_ucm_ud_param {
   __u8 private_data_len;
   __u8 reserved[7];
 };
+struct rdma_ucm_ece {
+  __u32 vendor_id;
+  __u32 attr_mod;
+};
 struct rdma_ucm_connect {
   struct rdma_ucm_conn_param conn_param;
   __u32 id;
   __u32 reserved;
+  struct rdma_ucm_ece ece;
 };
 struct rdma_ucm_listen {
   __u32 id;
@@ -178,11 +175,13 @@ struct rdma_ucm_accept {
   struct rdma_ucm_conn_param conn_param;
   __u32 id;
   __u32 reserved;
+  struct rdma_ucm_ece ece;
 };
 struct rdma_ucm_reject {
   __u32 id;
   __u8 private_data_len;
-  __u8 reserved[3];
+  __u8 reason;
+  __u8 reserved[2];
   __u8 private_data[RDMA_MAX_PRIVATE_DATA];
 };
 struct rdma_ucm_disconnect {
@@ -229,6 +228,7 @@ struct rdma_ucm_event_resp {
     struct rdma_ucm_ud_param ud;
   } param;
   __u32 reserved;
+  struct rdma_ucm_ece ece;
 };
 enum {
   RDMA_OPTION_ID = 0,

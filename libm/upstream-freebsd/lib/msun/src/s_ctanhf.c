@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2011 David Schultz
  * All rights reserved.
@@ -30,9 +30,6 @@
  * Hyperbolic tangent of a complex argument z.  See s_ctanh.c for details.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_ctanhf.c 336362 2018-07-17 07:42:14Z bde $");
-
 #include <complex.h>
 #include <math.h>
 
@@ -61,7 +58,7 @@ ctanhf(float complex z)
 	}
 
 	if (!isfinite(y))
-		return (CMPLXF(y - y, y - y));
+		return (CMPLXF(ix ? y - y : x, y - y));
 
 	if (ix >= 0x41300000) {	/* |x| >= 11 */
 		float exp_mx = expf(-fabsf(x));

@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _LINUX_KEYCTL_H
 #define _LINUX_KEYCTL_H
 #include <linux/types.h>
@@ -68,6 +56,7 @@
 #define KEYCTL_RESTRICT_KEYRING 29
 #define KEYCTL_MOVE 30
 #define KEYCTL_CAPABILITIES 31
+#define KEYCTL_WATCH_KEY 32
 struct keyctl_dh_params {
   union {
 #ifndef __cplusplus
@@ -79,8 +68,8 @@ struct keyctl_dh_params {
   __s32 base;
 };
 struct keyctl_kdf_params {
-  char __user * hashname;
-  char __user * otherinfo;
+  char  * hashname;
+  char  * otherinfo;
   __u32 otherinfolen;
   __u32 __spare[8];
 };
@@ -117,4 +106,5 @@ struct keyctl_pkey_params {
 #define KEYCTL_CAPS0_MOVE 0x80
 #define KEYCTL_CAPS1_NS_KEYRING_NAME 0x01
 #define KEYCTL_CAPS1_NS_KEY_TAG 0x02
+#define KEYCTL_CAPS1_NOTIFICATIONS 0x04
 #endif

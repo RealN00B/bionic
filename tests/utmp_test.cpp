@@ -24,8 +24,12 @@ TEST(utmp, login_tty) {
   ASSERT_EQ(-1, login_tty(-1));
 }
 
-TEST(utmp, setutent_getutent_endutent) {
+TEST(utmp, smoke) {
+  // The rest of <utmp.h> is just no-op implementations, so testing is trivial.
+  ASSERT_EQ(-1, utmpname("hello"));
   setutent();
-  getutent();
+  ASSERT_EQ(NULL, getutent());
   endutent();
+  utmp failure = {.ut_type = EMPTY};
+  ASSERT_EQ(NULL, pututline(&failure));
 }

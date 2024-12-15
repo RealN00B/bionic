@@ -17,10 +17,13 @@
 #include <netinet/in.h>
 
 #include <errno.h>
+#include <sys/cdefs.h>
 
 #include <gtest/gtest.h>
 
 #include <android-base/macros.h>
+
+#include "utils.h"
 
 static constexpr uint16_t le16 = 0x1234;
 static constexpr uint32_t le32 = 0x12345678;
@@ -31,8 +34,19 @@ static constexpr uint32_t be32 = 0x78563412;
 static constexpr uint64_t be64 = 0xf0debc9a78563412;
 
 TEST(netinet_in, bindresvport) {
-  // This isn't something we can usually test, so just check the symbol's there.
+#if !defined(ANDROID_HOST_MUSL)
+  // This isn't something we can usually test (because you need to be root),
+  // so just check the symbol's there.
   ASSERT_EQ(-1, bindresvport(-1, nullptr));
+
+  // Only AF_INET is supported.
+  sockaddr_in sin = {.sin_family = AF_INET6};
+  errno = 0;
+  ASSERT_EQ(-1, bindresvport(-1, &sin));
+  ASSERT_ERRNO(EPFNOSUPPORT);
+#else
+  GTEST_SKIP() << "musl doesn't support bindresvport";
+#endif
 }
 
 TEST(netinet_in, in6addr_any) {

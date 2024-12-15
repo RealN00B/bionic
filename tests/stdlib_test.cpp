@@ -22,18 +22,21 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/cdefs.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include <limits>
 #include <string>
+#include <thread>
 
 #include <android-base/file.h>
 #include <android-base/macros.h>
+#include <android-base/silent_death_test.h>
+#include <android-base/test_utils.h>
 #include <gtest/gtest.h>
 
-#include "BionicDeathTest.h"
 #include "math_data_test.h"
 #include "utils.h"
 
@@ -277,7 +280,7 @@ TEST(stdlib, aligned_alloc_sweep) {
     for (size_t fail_align = last_align + 1; fail_align < align; fail_align++) {
       ASSERT_TRUE(aligned_alloc(fail_align, fail_align) == nullptr)
           << "Unexpected success at align " << fail_align;
-      ASSERT_EQ(EINVAL, errno) << "Unexpected errno at align " << fail_align;
+      ASSERT_ERRNO(EINVAL) << "Unexpected errno at align " << fail_align;
     }
     void* ptr = aligned_alloc(align, 2 * align);
     ASSERT_TRUE(ptr != nullptr) << "Unexpected failure at align " << align;
@@ -308,21 +311,21 @@ TEST(stdlib, realpath__NULL_filename) {
   const char* path = nullptr;
   char* p = realpath(path, nullptr);
   ASSERT_TRUE(p == nullptr);
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 }
 
 TEST(stdlib, realpath__empty_filename) {
   errno = 0;
   char* p = realpath("", nullptr);
   ASSERT_TRUE(p == nullptr);
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
 }
 
 TEST(stdlib, realpath__ENOENT) {
   errno = 0;
   char* p = realpath("/this/directory/path/almost/certainly/does/not/exist", nullptr);
   ASSERT_TRUE(p == nullptr);
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
 }
 
 TEST(stdlib, realpath__ELOOP) {
@@ -333,19 +336,19 @@ TEST(stdlib, realpath__ELOOP) {
   errno = 0;
   char* p = realpath(link.c_str(), nullptr);
   ASSERT_TRUE(p == nullptr);
-  ASSERT_EQ(ELOOP, errno);
+  ASSERT_ERRNO(ELOOP);
 }
 
 TEST(stdlib, realpath__component_after_non_directory) {
   errno = 0;
   char* p = realpath("/dev/null/.", nullptr);
   ASSERT_TRUE(p == nullptr);
-  ASSERT_EQ(ENOTDIR, errno);
+  ASSERT_ERRNO(ENOTDIR);
 
   errno = 0;
   p = realpath("/dev/null/..", nullptr);
   ASSERT_TRUE(p == nullptr);
-  ASSERT_EQ(ENOTDIR, errno);
+  ASSERT_ERRNO(ENOTDIR);
 }
 
 TEST(stdlib, realpath) {
@@ -401,7 +404,7 @@ TEST(stdlib, realpath__deleted) {
   errno = 0;
   char* result = realpath(path.c_str(), nullptr);
   ASSERT_EQ(nullptr, result) << result;
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
   free(result);
 }
 
@@ -428,6 +431,31 @@ TEST(stdlib, qsort) {
   ASSERT_STREQ("charlie", entries[2].name);
 }
 
+TEST(stdlib, qsort_r) {
+  struct s {
+    char name[16];
+    static int comparator(const void* lhs, const void* rhs, void* context) {
+      int* count_p = reinterpret_cast<int*>(context);
+      *count_p += 1;
+      return strcmp(reinterpret_cast<const s*>(lhs)->name, reinterpret_cast<const s*>(rhs)->name);
+    }
+  };
+  s entries[3];
+  strcpy(entries[0].name, "charlie");
+  strcpy(entries[1].name, "bravo");
+  strcpy(entries[2].name, "alpha");
+
+  int count;
+  void* context = &count;
+
+  count = 0;
+  qsort_r(entries, 3, sizeof(s), s::comparator, context);
+  ASSERT_STREQ("alpha", entries[0].name);
+  ASSERT_STREQ("bravo", entries[1].name);
+  ASSERT_STREQ("charlie", entries[2].name);
+  ASSERT_EQ(count, 3);
+}
+
 static void* TestBug57421_child(void* arg) {
   pthread_t main_thread = reinterpret_cast<pthread_t>(arg);
   pthread_join(main_thread, nullptr);
@@ -447,24 +475,24 @@ static void TestBug57421_main() {
 // Even though this isn't really a death test, we have to say "DeathTest" here so gtest knows to
 // run this test (which exits normally) in its own process.
 
-class stdlib_DeathTest : public BionicDeathTest {};
+using stdlib_DeathTest = SilentDeathTest;
 
 TEST_F(stdlib_DeathTest, getenv_after_main_thread_exits) {
   // https://code.google.com/p/android/issues/detail?id=57421
   ASSERT_EXIT(TestBug57421_main(), ::testing::ExitedWithCode(0), "");
 }
 
-TEST(stdlib, mkostemp64) {
+TEST(stdlib, mkostemp64_smoke) {
   MyTemporaryFile tf([](char* path) { return mkostemp64(path, O_CLOEXEC); });
-  AssertCloseOnExec(tf.fd, true);
+  ASSERT_TRUE(CloseOnExec(tf.fd));
 }
 
 TEST(stdlib, mkostemp) {
   MyTemporaryFile tf([](char* path) { return mkostemp(path, O_CLOEXEC); });
-  AssertCloseOnExec(tf.fd, true);
+  ASSERT_TRUE(CloseOnExec(tf.fd));
 }
 
-TEST(stdlib, mkstemp64) {
+TEST(stdlib, mkstemp64_smoke) {
   MyTemporaryFile tf(mkstemp64);
   struct stat64 sb;
   ASSERT_EQ(0, fstat64(tf.fd, &sb));
@@ -487,6 +515,39 @@ TEST(stdlib, system) {
   status = system("exit 1");
   ASSERT_TRUE(WIFEXITED(status));
   ASSERT_EQ(1, WEXITSTATUS(status));
+}
+
+TEST(stdlib, system_NULL) {
+  // "The system() function shall always return non-zero when command is NULL."
+  // https://pubs.opengroup.org/onlinepubs/9799919799.2024edition/functions/system.html
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
+  ASSERT_NE(0, system(nullptr));
+#pragma clang diagnostic pop
+}
+
+// https://austingroupbugs.net/view.php?id=1440
+TEST(stdlib, system_minus) {
+  // Create a script with a name that starts with a '-'.
+  TemporaryDir td;
+  std::string script = std::string(td.path) + "/-minus";
+  ASSERT_TRUE(android::base::WriteStringToFile("#!" BIN_DIR "sh\nexit 66\n", script));
+
+  // Set $PATH so we can find it.
+  setenv("PATH", td.path, 1);
+  // Make it executable so we can run it.
+  ASSERT_EQ(0, chmod(script.c_str(), 0555));
+
+  int status = system("-minus");
+  EXPECT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(66, WEXITSTATUS(status));
+
+  // While we're here and have all the setup, let's test popen(3) too...
+  FILE* fp = popen("-minus", "r");
+  ASSERT_TRUE(fp != nullptr);
+  status = pclose(fp);
+  EXPECT_TRUE(WIFEXITED(status));
+  EXPECT_EQ(66, WEXITSTATUS(status));
 }
 
 TEST(stdlib, atof) {
@@ -615,6 +676,58 @@ TEST(stdlib, at_quick_exit) {
   AssertChildExited(pid, 99);
 }
 
+static void exit_from_atexit_func4() {
+  std::thread([] { exit(4); }).detach();
+  usleep(1000);
+  fprintf(stderr, "4");
+}
+
+static void exit_from_atexit_func3() {
+  std::thread([] { exit(3); }).detach();
+  fprintf(stderr, "3");
+  usleep(1000);
+  // This should cause us to exit with status 99,
+  // but not before printing "4",
+  // and without re-running the previous atexit handlers.
+  exit(99);
+}
+
+static void exit_from_atexit_func2() {
+  std::thread([] { exit(2); }).detach();
+  fprintf(stderr, "2");
+  usleep(1000);
+  // Register another atexit handler from within an atexit handler.
+  atexit(exit_from_atexit_func3);
+}
+
+static void exit_from_atexit_func1() {
+  // These atexit handlers all spawn another thread that tries to exit,
+  // and sleep to try to lose the race.
+  // The lock in exit() should ensure that only the first thread to call
+  // exit() can ever win (but see exit_from_atexit_func3() for a subtelty).
+  std::thread([] { exit(1); }).detach();
+  usleep(1000);
+  fprintf(stderr, "1");
+}
+
+static void exit_torturer() {
+  atexit(exit_from_atexit_func4);
+  // We deliberately don't register exit_from_atexit_func3() here;
+  // see exit_from_atexit_func2().
+  atexit(exit_from_atexit_func2);
+  atexit(exit_from_atexit_func1);
+  exit(0);
+}
+
+TEST(stdlib, exit_torture) {
+  // Test that the atexit() handlers are run in the defined order (reverse
+  // order of registration), even though one of them is registered by another
+  // when it runs, and that we get the exit code from the last call to exit()
+  // on the first thread to call exit() (rather than one of the other threads
+  // or a deadlock from the second call on the same thread).
+  ASSERT_EXIT(exit_torturer(), testing::ExitedWithCode(99), "1234");
+}
+
 TEST(unistd, _Exit) {
   pid_t pid = fork();
   ASSERT_NE(-1, pid) << strerror(errno);
@@ -625,6 +738,13 @@ TEST(unistd, _Exit) {
 
   AssertChildExited(pid, 99);
 }
+
+#if defined(ANDROID_HOST_MUSL)
+// musl doesn't have getpt
+int getpt() {
+  return posix_openpt(O_RDWR|O_NOCTTY);
+}
+#endif
 
 TEST(stdlib, pty_smoke) {
   // getpt returns a pty with O_RDWR|O_NOCTTY.
@@ -653,7 +773,7 @@ TEST(stdlib, ptsname_r_ENOTTY) {
   errno = 0;
   char buf[128];
   ASSERT_EQ(ENOTTY, ptsname_r(STDOUT_FILENO, buf, sizeof(buf)));
-  ASSERT_EQ(ENOTTY, errno);
+  ASSERT_ERRNO(ENOTTY);
 }
 
 TEST(stdlib, ptsname_r_EINVAL) {
@@ -662,7 +782,7 @@ TEST(stdlib, ptsname_r_EINVAL) {
   errno = 0;
   char* buf = nullptr;
   ASSERT_EQ(EINVAL, ptsname_r(fd, buf, 128));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
   close(fd);
 }
 
@@ -672,7 +792,7 @@ TEST(stdlib, ptsname_r_ERANGE) {
   errno = 0;
   char buf[1];
   ASSERT_EQ(ERANGE, ptsname_r(fd, buf, sizeof(buf)));
-  ASSERT_EQ(ERANGE, errno);
+  ASSERT_ERRNO(ERANGE);
   close(fd);
 }
 
@@ -703,7 +823,7 @@ TEST(stdlib, ttyname_r_ENOTTY) {
   errno = 0;
   char buf[128];
   ASSERT_EQ(ENOTTY, ttyname_r(fd, buf, sizeof(buf)));
-  ASSERT_EQ(ENOTTY, errno);
+  ASSERT_ERRNO(ENOTTY);
   close(fd);
 }
 
@@ -713,7 +833,7 @@ TEST(stdlib, ttyname_r_EINVAL) {
   errno = 0;
   char* buf = nullptr;
   ASSERT_EQ(EINVAL, ttyname_r(fd, buf, 128));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
   close(fd);
 }
 
@@ -723,7 +843,7 @@ TEST(stdlib, ttyname_r_ERANGE) {
   errno = 0;
   char buf[1];
   ASSERT_EQ(ERANGE, ttyname_r(fd, buf, sizeof(buf)));
-  ASSERT_EQ(ERANGE, errno);
+  ASSERT_ERRNO(ERANGE);
   close(fd);
 }
 
@@ -731,7 +851,7 @@ TEST(stdlib, unlockpt_ENOTTY) {
   int fd = open("/dev/null", O_WRONLY);
   errno = 0;
   ASSERT_EQ(-1, unlockpt(fd));
-  ASSERT_EQ(ENOTTY, errno);
+  ASSERT_ERRNO(ENOTTY);
   close(fd);
 }
 
@@ -788,21 +908,44 @@ static void CheckStrToInt(T fn(const char* s, char** end, int base)) {
   // Negative base => invalid.
   errno = 0;
   ASSERT_EQ(T(0), fn("123", &end_p, -1));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 
   // Base 1 => invalid (base 0 means "please guess").
   errno = 0;
   ASSERT_EQ(T(0), fn("123", &end_p, 1));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 
   // Base > 36 => invalid.
   errno = 0;
   ASSERT_EQ(T(0), fn("123", &end_p, 37));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
+
+  // Both leading + or - are always allowed (even for the strtou* family).
+  ASSERT_EQ(T(-123), fn("-123", &end_p, 10));
+  ASSERT_EQ(T(123), fn("+123", &end_p, 10));
+
+  // If we see "0b" *not* followed by a binary digit, we shouldn't swallow the 'b'.
+  ASSERT_EQ(T(0), fn("0b", &end_p, 2));
+  ASSERT_EQ('b', *end_p);
+
+  // Binary (the "0b" prefix) is case-insensitive.
+  ASSERT_EQ(T(0b101), fn("0b101", &end_p, 0));
+  ASSERT_EQ(T(0b101), fn("0B101", &end_p, 0));
 
   // If we see "0x" *not* followed by a hex digit, we shouldn't swallow the 'x'.
   ASSERT_EQ(T(0), fn("0xy", &end_p, 16));
   ASSERT_EQ('x', *end_p);
+
+  // Hexadecimal (both the "0x" prefix and the digits) is case-insensitive.
+  ASSERT_EQ(T(0xab), fn("0xab", &end_p, 0));
+  ASSERT_EQ(T(0xab), fn("0Xab", &end_p, 0));
+  ASSERT_EQ(T(0xab), fn("0xAB", &end_p, 0));
+  ASSERT_EQ(T(0xab), fn("0XAB", &end_p, 0));
+  ASSERT_EQ(T(0xab), fn("0xAb", &end_p, 0));
+  ASSERT_EQ(T(0xab), fn("0XAb", &end_p, 0));
+
+  // Octal lives! (Sadly.)
+  ASSERT_EQ(T(0666), fn("0666", &end_p, 0));
 
   if (std::numeric_limits<T>::is_signed) {
     // Minimum (such as -128).
@@ -810,14 +953,14 @@ static void CheckStrToInt(T fn(const char* s, char** end, int base)) {
     end_p = nullptr;
     errno = 0;
     ASSERT_EQ(std::numeric_limits<T>::min(), fn(min.c_str(), &end_p, 0));
-    ASSERT_EQ(0, errno);
+    ASSERT_ERRNO(0);
     ASSERT_EQ('\0', *end_p);
     // Too negative (such as -129).
     min.back() = (min.back() + 1);
     end_p = nullptr;
     errno = 0;
     ASSERT_EQ(std::numeric_limits<T>::min(), fn(min.c_str(), &end_p, 0));
-    ASSERT_EQ(ERANGE, errno);
+    ASSERT_ERRNO(ERANGE);
     ASSERT_EQ('\0', *end_p);
   }
 
@@ -826,15 +969,21 @@ static void CheckStrToInt(T fn(const char* s, char** end, int base)) {
   end_p = nullptr;
   errno = 0;
   ASSERT_EQ(std::numeric_limits<T>::max(), fn(max.c_str(), &end_p, 0));
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
   ASSERT_EQ('\0', *end_p);
   // Too positive (such as 128).
   max.back() = (max.back() + 1);
   end_p = nullptr;
   errno = 0;
   ASSERT_EQ(std::numeric_limits<T>::max(), fn(max.c_str(), &end_p, 0));
-  ASSERT_EQ(ERANGE, errno);
+  ASSERT_ERRNO(ERANGE);
   ASSERT_EQ('\0', *end_p);
+
+  // Junk at the end of a valid conversion.
+  errno = 0;
+  ASSERT_EQ(static_cast<T>(123), fn("123abc", &end_p, 0));
+  ASSERT_ERRNO(0);
+  ASSERT_STREQ("abc", end_p);
 
   // In case of overflow, strto* leaves us pointing past the end of the number,
   // not at the digit that overflowed.
@@ -842,14 +991,14 @@ static void CheckStrToInt(T fn(const char* s, char** end, int base)) {
   errno = 0;
   ASSERT_EQ(std::numeric_limits<T>::max(),
             fn("99999999999999999999999999999999999999999999999999999abc", &end_p, 0));
-  ASSERT_EQ(ERANGE, errno);
+  ASSERT_ERRNO(ERANGE);
   ASSERT_STREQ("abc", end_p);
   if (std::numeric_limits<T>::is_signed) {
       end_p = nullptr;
       errno = 0;
       ASSERT_EQ(std::numeric_limits<T>::min(),
                 fn("-99999999999999999999999999999999999999999999999999999abc", &end_p, 0));
-      ASSERT_EQ(ERANGE, errno);
+      ASSERT_ERRNO(ERANGE);
       ASSERT_STREQ("abc", end_p);
   }
 }
@@ -876,6 +1025,18 @@ TEST(stdlib, strtoimax_smoke) {
 
 TEST(stdlib, strtoumax_smoke) {
   CheckStrToInt(strtoumax);
+}
+
+TEST(stdlib, atoi) {
+  // Implemented using strtol in bionic, so extensive testing unnecessary.
+  ASSERT_EQ(123, atoi("123four"));
+  ASSERT_EQ(0, atoi("hello"));
+}
+
+TEST(stdlib, atol) {
+  // Implemented using strtol in bionic, so extensive testing unnecessary.
+  ASSERT_EQ(123L, atol("123four"));
+  ASSERT_EQ(0L, atol("hello"));
 }
 
 TEST(stdlib, abs) {
@@ -928,8 +1089,8 @@ TEST(stdlib, getloadavg) {
 }
 
 TEST(stdlib, getprogname) {
-#if defined(__GLIBC__)
-  GTEST_SKIP() << "glibc doesn't have getprogname()";
+#if defined(__GLIBC__) || defined(ANDROID_HOST_MUSL)
+  GTEST_SKIP() << "glibc and musl don't have getprogname()";
 #else
   // You should always have a name.
   ASSERT_TRUE(getprogname() != nullptr);
@@ -939,8 +1100,8 @@ TEST(stdlib, getprogname) {
 }
 
 TEST(stdlib, setprogname) {
-#if defined(__GLIBC__)
-  GTEST_SKIP() << "glibc doesn't have setprogname()";
+#if defined(__GLIBC__) || defined(ANDROID_HOST_MUSL)
+  GTEST_SKIP() << "glibc and musl don't have setprogname()";
 #else
   // setprogname() only takes the basename of what you give it.
   setprogname("/usr/bin/muppet");

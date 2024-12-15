@@ -19,13 +19,26 @@
 #include <dirent.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <gtest/gtest.h>
 #include <inttypes.h>
 #include <sys/mman.h>
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
+#if defined(__BIONIC__)
+#include <sys/system_properties.h>
+#endif
+
+#if defined(__BIONIC__)
+#include <bionic/macros.h>
+#else
+#define untag_address(p) p
+#endif
+
 #include <atomic>
+#include <iomanip>
 #include <string>
 #include <regex>
 
@@ -58,21 +71,15 @@ static inline bool have_dl() {
   return (dlopen("libc.so", 0) != nullptr);
 }
 
-extern "C" void __hwasan_init() __attribute__((weak));
-
-static inline bool running_with_hwasan() {
-  return &__hwasan_init != 0;
-}
-
-#define SKIP_WITH_HWASAN if (running_with_hwasan()) GTEST_SKIP()
-
-static inline void* untag_address(void* addr) {
-#if defined(__LP64__)
-  constexpr uintptr_t mask = (static_cast<uintptr_t>(1) << 56) - 1;
-  addr = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(addr) & mask);
+static inline bool running_with_native_bridge() {
+#if defined(__BIONIC__)
+  static const prop_info* pi = __system_property_find("ro.dalvik.vm.isa." ABI_STRING);
+  return pi != nullptr;
 #endif
-  return addr;
+  return false;
 }
+
+#define SKIP_WITH_NATIVE_BRIDGE if (running_with_native_bridge()) GTEST_SKIP()
 
 #if defined(__linux__)
 
@@ -173,10 +180,14 @@ static inline void AssertChildExited(int pid, int expected_exit_status,
   }
 }
 
-static inline void AssertCloseOnExec(int fd, bool close_on_exec) {
+static inline bool CloseOnExec(int fd) {
   int flags = fcntl(fd, F_GETFD);
-  ASSERT_NE(flags, -1);
-  ASSERT_EQ(close_on_exec ? FD_CLOEXEC : 0, flags & FD_CLOEXEC);
+  // This isn't ideal, but the alternatives are worse:
+  // * If we return void and use ASSERT_NE here, we get failures at utils.h:191
+  //   rather than in the relevant test.
+  // * If we ignore failures of fcntl(), well, that's obviously a bad idea.
+  if (flags == -1) abort();
+  return flags & FD_CLOEXEC;
 }
 
 // The absolute path to the executable
@@ -212,7 +223,7 @@ class ExecTestHelper {
   }
 
   void Run(const std::function<void()>& child_fn, int expected_exit_status,
-           const char* expected_output) {
+           const char* expected_output_regex) {
     int fds[2];
     ASSERT_NE(pipe(fds), -1);
 
@@ -241,8 +252,10 @@ class ExecTestHelper {
 
     std::string error_msg("Test output:\n" + output_);
     AssertChildExited(pid, expected_exit_status, &error_msg);
-    if (expected_output != nullptr) {
-      ASSERT_EQ(expected_output, output_);
+    if (expected_output_regex != nullptr) {
+      if (!std::regex_search(output_, std::regex(expected_output_regex))) {
+        FAIL() << "regex " << std::quoted(expected_output_regex) << " didn't match " << std::quoted(output_);
+      }
     }
   }
 
@@ -251,6 +264,9 @@ class ExecTestHelper {
   std::vector<const char*> env_;
   std::string output_;
 };
+
+void RunGwpAsanTest(const char* test_name);
+void RunSubtestNoEnv(const char* test_name);
 #endif
 
 class FdLeakChecker {
@@ -278,3 +294,37 @@ class FdLeakChecker {
 
   size_t start_count_ = CountOpenFds();
 };
+
+// From <benchmark/benchmark.h>.
+template <class Tp>
+static inline void DoNotOptimize(Tp const& value) {
+  asm volatile("" : : "r,m"(value) : "memory");
+}
+template <class Tp>
+static inline void DoNotOptimize(Tp& value) {
+  asm volatile("" : "+r,m"(value) : : "memory");
+}
+
+static inline bool running_with_mte() {
+#ifdef __aarch64__
+  int level = prctl(PR_GET_TAGGED_ADDR_CTRL, 0, 0, 0, 0);
+  return level >= 0 && (level & PR_TAGGED_ADDR_ENABLE) &&
+         (level & PR_MTE_TCF_MASK) != PR_MTE_TCF_NONE;
+#else
+  return false;
+#endif
+}
+
+bool IsLowRamDevice();
+
+int64_t NanoTime();
+
+class Errno {
+ public:
+  Errno(int e) : errno_(e) {}
+  int errno_;
+};
+void PrintTo(const Errno& e, std::ostream* os);
+bool operator==(const Errno& lhs, const Errno& rhs);
+#define ASSERT_ERRNO(expected_errno) ASSERT_EQ(Errno(expected_errno), Errno(errno))
+#define EXPECT_ERRNO(expected_errno) EXPECT_EQ(Errno(expected_errno), Errno(errno))

@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef __GFS2_ONDISK_DOT_H__
 #define __GFS2_ONDISK_DOT_H__
 #include <linux/types.h>
@@ -45,7 +33,7 @@
 #define GFS2_FORMAT_RI 1100
 #define GFS2_FORMAT_DE 1200
 #define GFS2_FORMAT_QU 1500
-#define GFS2_FORMAT_FS 1801
+#define GFS2_FORMAT_FS 1802
 #define GFS2_FORMAT_MULTI 1900
 struct gfs2_inum {
   __be64 no_formal_ino;
@@ -117,6 +105,11 @@ struct gfs2_rindex {
 #define GFS2_RGF_DATAONLY 0x00000004
 #define GFS2_RGF_NOALLOC 0x00000008
 #define GFS2_RGF_TRIMMED 0x00000010
+struct gfs2_inode_lvb {
+  __be32 ri_magic;
+  __be32 __pad;
+  __be64 ri_generation_deleted;
+};
 struct gfs2_rgrp_lvb {
   __be32 rl_magic;
   __be32 rl_flags;
@@ -255,7 +248,8 @@ struct gfs2_leaf {
 #define GFS2_EATYPE_USR 1
 #define GFS2_EATYPE_SYS 2
 #define GFS2_EATYPE_SECURITY 3
-#define GFS2_EATYPE_LAST 3
+#define GFS2_EATYPE_TRUSTED 4
+#define GFS2_EATYPE_LAST 4
 #define GFS2_EATYPE_VALID(x) ((x) <= GFS2_EATYPE_LAST)
 #define GFS2_EAFLAG_LAST 0x01
 struct gfs2_ea_header {

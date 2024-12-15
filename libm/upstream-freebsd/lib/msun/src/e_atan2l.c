@@ -1,5 +1,4 @@
 
-/* @(#)e_atan2.c 1.3 95/01/18 */
 /* FreeBSD: head/lib/msun/src/e_atan2.c 176451 2008-02-22 02:30:36Z das */
 /*
  * ====================================================
@@ -12,9 +11,6 @@
  * ====================================================
  *
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/e_atan2l.c 336362 2018-07-17 07:42:14Z bde $");
 
 /*
  * See comments in e_atan2.c.

@@ -40,12 +40,12 @@ static constexpr uintptr_t align_up(uintptr_t p, size_t align) {
 }
 
 template <typename T>
-static inline T* align_down(T* p, size_t align) {
+static inline T* _Nonnull align_down(T* _Nonnull p, size_t align) {
   return reinterpret_cast<T*>(align_down(reinterpret_cast<uintptr_t>(p), align));
 }
 
 template <typename T>
-static inline T* align_up(T* p, size_t align) {
+static inline T* _Nonnull align_up(T* _Nonnull p, size_t align) {
   return reinterpret_cast<T*>(align_up(reinterpret_cast<uintptr_t>(p), align));
 }
 
@@ -55,10 +55,10 @@ static inline T* align_up(T* p, size_t align) {
 #define BIONIC_STOP_UNWIND asm volatile(".cfi_undefined x30")
 #elif defined(__i386__)
 #define BIONIC_STOP_UNWIND asm volatile(".cfi_undefined \%eip")
+#elif defined(__riscv)
+#define BIONIC_STOP_UNWIND asm volatile(".cfi_undefined ra")
 #elif defined(__x86_64__)
 #define BIONIC_STOP_UNWIND asm volatile(".cfi_undefined \%rip")
-#elif defined (__mips__)
-#define BIONIC_STOP_UNWIND asm volatile(".cfi_undefined $ra")
 #endif
 
 // The arraysize(arr) macro returns the # of elements in an array arr.
@@ -85,11 +85,15 @@ char (&ArraySizeHelper(T (&array)[N]))[N];  // NOLINT(readability/casting)
 #define __BIONIC_FALLTHROUGH
 #endif
 
-template <typename T>
-static inline T* untag_address(T* p) {
+static inline uintptr_t untag_address(uintptr_t p) {
 #if defined(__aarch64__)
-  return reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(p) & ((1ULL << 56) - 1));
+  return p & ((1ULL << 56) - 1);
 #else
   return p;
 #endif
+}
+
+template <typename T>
+static inline T* _Nonnull untag_address(T* _Nonnull p) {
+  return reinterpret_cast<T*>(untag_address(reinterpret_cast<uintptr_t>(p)));
 }

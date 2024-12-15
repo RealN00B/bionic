@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2005 Bruce D. Evans and Steven G. Kargl
  * All rights reserved.
@@ -37,9 +37,6 @@
  * The sign of the result for some exceptional values is unspecified but
  * must satisfy both sinh(conj(z)) == conj(sinh(z)) and sinh(-z) == -sinh(z).
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_csinh.c 336362 2018-07-17 07:42:14Z bde $");
 
 #include <complex.h>
 #include <math.h>

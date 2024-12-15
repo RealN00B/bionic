@@ -57,19 +57,6 @@
 #define _JB_SIGFLAG 8
 #define _JB_CHECKSUM 9
 
-.macro m_mangle_registers reg
-  xorl \reg,%edx
-  xorl \reg,%ebx
-  xorl \reg,%esp
-  xorl \reg,%ebp
-  xorl \reg,%esi
-  xorl \reg,%edi
-.endm
-
-.macro m_unmangle_registers reg
-  m_mangle_registers \reg
-.endm
-
 .macro m_calculate_checksum dst, src
   movl $0, \dst
   .irp i,0,1,2,3,4,5
@@ -77,23 +64,17 @@
   .endr
 .endm
 
-ENTRY(setjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(setjmp)
-  movl 4(%esp),%ecx
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(setjmp)
   mov $1,%eax
   jmp .L_sigsetjmp
 END(setjmp)
 
-ENTRY(_setjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(_setjmp)
-  movl 4(%esp),%ecx
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(_setjmp)
   movl $0,%eax
   jmp .L_sigsetjmp
 END(_setjmp)
 
-ENTRY(sigsetjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
-  movl 4(%esp),%ecx
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(sigsetjmp)
   movl 8(%esp),%eax
 
 .L_sigsetjmp:
@@ -104,6 +85,7 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
   PIC_EPILOGUE
 
   // Record the setjmp cookie and whether or not we're saving the signal mask.
+  movl 4(%esp),%ecx
   movl %eax,(_JB_SIGFLAG * 4)(%ecx)
 
   // Do we need to save the signal mask?
@@ -129,14 +111,17 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
 
   // Save the callee-save registers.
   movl 0(%esp),%edx
-  m_mangle_registers %eax
-  movl %edx,(_JB_EDX * 4)(%ecx)
-  movl %ebx,(_JB_EBX * 4)(%ecx)
-  movl %esp,(_JB_ESP * 4)(%ecx)
-  movl %ebp,(_JB_EBP * 4)(%ecx)
-  movl %esi,(_JB_ESI * 4)(%ecx)
-  movl %edi,(_JB_EDI * 4)(%ecx)
-  m_unmangle_registers %eax
+
+.macro m_mangle_register reg, offset
+  movl \reg,(\offset * 4)(%ecx)
+  xorl %eax,(\offset * 4)(%ecx)
+.endm
+  m_mangle_register %edx, _JB_EDX
+  m_mangle_register %ebx, _JB_EBX
+  m_mangle_register %esp, _JB_ESP
+  m_mangle_register %ebp, _JB_EBP
+  m_mangle_register %esi, _JB_ESI
+  m_mangle_register %edi, _JB_EDI
 
   m_calculate_checksum %eax, %ecx
   movl %eax, (_JB_CHECKSUM * 4)(%ecx)
@@ -145,8 +130,7 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
   ret
 END(sigsetjmp)
 
-ENTRY(siglongjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(siglongjmp)
   movl 4(%esp),%edx
 
   // Check the checksum before doing anything.
@@ -174,18 +158,26 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
   movl 4(%esp),%edx
   movl 8(%esp),%eax
 
+  // Fetch the setjmp cookie and clear the signal flag bit.
   movl (_JB_SIGFLAG * 4)(%edx),%ecx
   andl $-2,%ecx
 
+  // Carefully unmangle esp/ebp without ever having an invalid value in the
+  // register (http://b/152210274).
+  movl (_JB_ESP * 4)(%edx),%edi
+  xorl %ecx,%edi
+  movl %edi,%esp
+  movl (_JB_EBP * 4)(%edx),%edi
+  xorl %ecx,%edi
+  movl %edi,%ebp
+
+  // The others don't matter as much, but we do need to finish using the cookie
+  // from %ecx before we clobber it, so we seed each register with the cookie.
   movl %ecx,%ebx
-  movl %ecx,%esp
-  movl %ecx,%ebp
   movl %ecx,%esi
   movl %ecx,%edi
   xorl (_JB_EDX * 4)(%edx),%ecx
   xorl (_JB_EBX * 4)(%edx),%ebx
-  xorl (_JB_ESP * 4)(%edx),%esp
-  xorl (_JB_EBP * 4)(%edx),%ebp
   xorl (_JB_ESI * 4)(%edx),%esi
   xorl (_JB_EDI * 4)(%edx),%edi
 
@@ -212,7 +204,5 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
   call PIC_PLT(__bionic_setjmp_checksum_mismatch)
 END(siglongjmp)
 
-ALIAS_SYMBOL(longjmp, siglongjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(longjmp)
-ALIAS_SYMBOL(_longjmp, siglongjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(_longjmp)
+ALIAS_SYMBOL_WEAK_FOR_NATIVE_BRIDGE(longjmp, siglongjmp)
+ALIAS_SYMBOL_WEAK_FOR_NATIVE_BRIDGE(_longjmp, siglongjmp)

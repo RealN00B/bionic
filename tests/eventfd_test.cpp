@@ -34,7 +34,7 @@ TEST(eventfd, smoke) {
 
   // Reading clears the counter.
   ASSERT_EQ(-1, eventfd_read(fd, &value));
-  ASSERT_EQ(EAGAIN, errno);
+  ASSERT_ERRNO(EAGAIN);
 
   // Values written are added until the next read.
   ASSERT_EQ(0, eventfd_write(fd, 1));
@@ -51,7 +51,7 @@ TEST(eventfd, cloexec) {
   constexpr unsigned int kInitialValue = 2;
   int fd = eventfd(kInitialValue, EFD_CLOEXEC);
   ASSERT_NE(-1, fd);
-  AssertCloseOnExec(fd, true);
+  ASSERT_TRUE(CloseOnExec(fd));
 
   eventfd_t value = 123;
   ASSERT_EQ(0, eventfd_read(fd, &value));
@@ -61,7 +61,7 @@ TEST(eventfd, cloexec) {
 
   fd = eventfd(kInitialValue, EFD_NONBLOCK | EFD_CLOEXEC);
   ASSERT_NE(-1, fd);
-  AssertCloseOnExec(fd, true);
+  ASSERT_TRUE(CloseOnExec(fd));
 
   value = 123;
   ASSERT_EQ(0, eventfd_read(fd, &value));
@@ -88,7 +88,7 @@ TEST(eventfd, semaphore) {
 
   // The counter is cleared after the initial value decrements to 0.
   ASSERT_EQ(-1, eventfd_read(fd, &value));
-  ASSERT_EQ(EAGAIN, errno);
+  ASSERT_ERRNO(EAGAIN);
 
   close(fd);
 }

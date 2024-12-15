@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef __UAPI_VBOXGUEST_H__
 #define __UAPI_VBOXGUEST_H__
 #include <asm/bitsperlong.h>
@@ -53,7 +41,7 @@ struct vbg_ioctl_driver_version_info {
 };
 #define VBG_IOCTL_DRIVER_VERSION_INFO _IOWR('V', 0, struct vbg_ioctl_driver_version_info)
 #define VBG_IOCTL_VMMDEV_REQUEST(s) _IOC(_IOC_READ | _IOC_WRITE, 'V', 2, s)
-#define VBG_IOCTL_VMMDEV_REQUEST_BIG _IOC(_IOC_READ | _IOC_WRITE, 'V', 3, 0)
+#define VBG_IOCTL_VMMDEV_REQUEST_BIG _IO('V', 3)
 struct vbg_ioctl_hgcm_connect {
   struct vbg_ioctl_hdr hdr;
   union {
@@ -99,7 +87,7 @@ struct vbg_ioctl_log {
     } in;
   } u;
 };
-#define VBG_IOCTL_LOG(s) _IOC(_IOC_READ | _IOC_WRITE, 'V', 9, s)
+#define VBG_IOCTL_LOG(s) _IO('V', 9)
 struct vbg_ioctl_wait_for_events {
   struct vbg_ioctl_hdr hdr;
   union {
@@ -124,6 +112,19 @@ struct vbg_ioctl_change_filter {
   } u;
 };
 #define VBG_IOCTL_CHANGE_FILTER_MASK _IOWR('V', 12, struct vbg_ioctl_change_filter)
+struct vbg_ioctl_acquire_guest_caps {
+  struct vbg_ioctl_hdr hdr;
+  union {
+    struct {
+      __u32 flags;
+      __u32 or_mask;
+      __u32 not_mask;
+    } in;
+  } u;
+};
+#define VBGL_IOC_AGC_FLAGS_CONFIG_ACQUIRE_MODE 0x00000001
+#define VBGL_IOC_AGC_FLAGS_VALID_MASK 0x00000001
+#define VBG_IOCTL_ACQUIRE_GUEST_CAPABILITIES _IOWR('V', 13, struct vbg_ioctl_acquire_guest_caps)
 struct vbg_ioctl_set_guest_caps {
   struct vbg_ioctl_hdr hdr;
   union {

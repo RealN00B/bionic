@@ -1,11 +1,10 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # This tool is used to generate the assembler system call stubs,
 # the header files listing all available system calls, and the
 # makefiles used to build all the stubs.
 
 import atexit
-import commands
 import filecmp
 import glob
 import re
@@ -16,7 +15,7 @@ import sys
 import tempfile
 
 
-SupportedArchitectures = [ "arm", "arm64", "mips", "mips64", "x86", "x86_64" ]
+SupportedArchitectures = [ "arm", "arm64", "riscv64", "x86", "x86_64" ]
 
 syscall_stub_header = \
 """
@@ -28,7 +27,7 @@ ENTRY(%(func)s)
 # ARM assembler templates for each syscall stub
 #
 
-arm_eabi_call_default = syscall_stub_header + """\
+arm_call_default = syscall_stub_header + """\
     mov     ip, r7
     .cfi_register r7, ip
     ldr     r7, =%(__NR_name)s
@@ -42,7 +41,7 @@ arm_eabi_call_default = syscall_stub_header + """\
 END(%(func)s)
 """
 
-arm_eabi_call_long = syscall_stub_header + """\
+arm_call_long = syscall_stub_header + """\
     mov     ip, sp
     stmfd   sp!, {r4, r5, r6, r7}
     .cfi_def_cfa_offset 16
@@ -81,54 +80,22 @@ END(%(func)s)
 
 
 #
-# MIPS assembler template for each syscall stub
+# RISC-V64 assembler templates for each syscall stub
 #
 
-mips_call = syscall_stub_header + """\
-    .set noreorder
-    .cpload $t9
-    li $v0, %(__NR_name)s
-    syscall
-    bnez $a3, 1f
-    move $a0, $v0
-    j $ra
-    nop
+riscv64_call = syscall_stub_header + """\
+    li      a7, %(__NR_name)s
+    ecall
+
+    li      a7, -MAX_ERRNO
+    bgeu    a0, a7, 1f
+
+    ret
 1:
-    la $t9,__set_errno_internal
-    j $t9
-    nop
-    .set reorder
+    neg     a0, a0
+    tail    __set_errno_internal
 END(%(func)s)
 """
-
-
-#
-# MIPS64 assembler template for each syscall stub
-#
-
-mips64_call = syscall_stub_header + """\
-    .set push
-    .set noreorder
-    li $v0, %(__NR_name)s
-    syscall
-    bnez $a3, 1f
-    move $a0, $v0
-    j $ra
-    nop
-1:
-    move $t0, $ra
-    bal 2f
-    nop
-2:
-    .cpsetup $ra, $t1, 2b
-    LA $t9, __set_errno_internal
-    .cpreturn
-    j $t9
-    move $ra, $t0
-    .set pop
-END(%(func)s)
-"""
-
 
 #
 # x86 assembler templates for each syscall stub
@@ -260,31 +227,22 @@ def add_footer(pointer_length, stub, syscall):
     aliases = syscall["aliases"]
     for alias in aliases:
         stub += "\nALIAS_SYMBOL(%s, %s)\n" % (alias, syscall["func"])
-
-    # Use hidden visibility on LP64 for any functions beginning with underscores.
-    if pointer_length == 64 and syscall["func"].startswith("__"):
-        stub += '.hidden ' + syscall["func"] + '\n'
-
     return stub
 
 
-def arm_eabi_genstub(syscall):
+def arm_genstub(syscall):
     num_regs = count_arm_param_registers(syscall["params"])
     if num_regs > 4:
-        return arm_eabi_call_long % syscall
-    return arm_eabi_call_default % syscall
+        return arm_call_long % syscall
+    return arm_call_default % syscall
 
 
 def arm64_genstub(syscall):
     return arm64_call % syscall
 
 
-def mips_genstub(syscall):
-    return mips_call % syscall
-
-
-def mips64_genstub(syscall):
-    return mips64_call % syscall
+def riscv64_genstub(syscall):
+    return riscv64_call % syscall
 
 
 def x86_genstub(syscall):
@@ -370,10 +328,12 @@ def x86_64_genstub(syscall):
 class SysCallsTxtParser:
     def __init__(self):
         self.syscalls = []
-        self.lineno   = 0
+        self.lineno = 0
+        self.errors = False
 
     def E(self, msg):
-        print "%d: %s" % (self.lineno, msg)
+        print("%d: %s" % (self.lineno, msg))
+        self.errors = True
 
     def parse_line(self, line):
         """ parse a syscall spec line.
@@ -398,7 +358,7 @@ class SysCallsTxtParser:
             return
 
         syscall_func = return_type[-1]
-        return_type  = string.join(return_type[:-1],' ')
+        return_type  = ' '.join(return_type[:-1])
         socketcall_id = -1
 
         pos_colon = syscall_func.find(':')
@@ -430,13 +390,13 @@ class SysCallsTxtParser:
             alias_delim = syscall_name.find('|')
             if alias_delim > 0:
                 syscall_name = syscall_name[:alias_delim]
-            syscall_aliases = string.split(alias_list, ',')
+            syscall_aliases = alias_list.split(',')
         else:
             syscall_aliases = []
 
         if pos_rparen > pos_lparen+1:
             syscall_params = line[pos_lparen+1:pos_rparen].split(',')
-            params         = string.join(syscall_params,',')
+            params         = ','.join(syscall_params)
         else:
             syscall_params = []
             params         = "void"
@@ -455,17 +415,17 @@ class SysCallsTxtParser:
         if arch_list == "all":
             for arch in SupportedArchitectures:
                 t[arch] = True
-        elif arch_list == "lp32":
-            for arch in SupportedArchitectures:
-                if "64" not in arch:
-                    t[arch] = True
-        elif arch_list == "lp64":
-            for arch in SupportedArchitectures:
-                if "64" in arch:
-                    t[arch] = True
         else:
-            for arch in string.split(arch_list, ','):
-                if arch in SupportedArchitectures:
+            for arch in arch_list.split(','):
+                if arch == "lp32":
+                    for arch in SupportedArchitectures:
+                        if "64" not in arch:
+                          t[arch] = True
+                elif arch == "lp64":
+                    for arch in SupportedArchitectures:
+                        if "64" in arch:
+                            t[arch] = True
+                elif arch in SupportedArchitectures:
                     t[arch] = True
                 else:
                     E("invalid syscall architecture '%s' in '%s'" % (arch, line))
@@ -480,6 +440,8 @@ class SysCallsTxtParser:
             if not line: continue
             if line[0] == '#': continue
             self.parse_line(line)
+        if self.errors:
+            sys.exit(1)
 
     def parse_file(self, file_path):
         with open(file_path) as fp:
@@ -493,13 +455,16 @@ def main(arch, syscall_file):
     for syscall in parser.syscalls:
         syscall["__NR_name"] = make__NR_name(syscall["name"])
 
-        if syscall.has_key("arm"):
-            syscall["asm-arm"] = add_footer(32, arm_eabi_genstub(syscall), syscall)
+        if "arm" in syscall:
+            syscall["asm-arm"] = add_footer(32, arm_genstub(syscall), syscall)
 
-        if syscall.has_key("arm64"):
+        if "arm64" in syscall:
             syscall["asm-arm64"] = add_footer(64, arm64_genstub(syscall), syscall)
 
-        if syscall.has_key("x86"):
+        if "riscv64" in syscall:
+            syscall["asm-riscv64"] = add_footer(64, riscv64_genstub(syscall), syscall)
+
+        if "x86" in syscall:
             if syscall["socketcall_id"] >= 0:
                 syscall["asm-x86"] = add_footer(32, x86_genstub_socketcall(syscall), syscall)
             else:
@@ -508,25 +473,21 @@ def main(arch, syscall_file):
             E("socketcall_id for dispatch syscalls is only supported for x86 in '%s'" % t)
             return
 
-        if syscall.has_key("mips"):
-            syscall["asm-mips"] = add_footer(32, mips_genstub(syscall), syscall)
-
-        if syscall.has_key("mips64"):
-            syscall["asm-mips64"] = add_footer(64, mips64_genstub(syscall), syscall)
-
-        if syscall.has_key("x86_64"):
+        if "x86_64" in syscall:
             syscall["asm-x86_64"] = add_footer(64, x86_64_genstub(syscall), syscall)
 
     print("/* Generated by gensyscalls.py. Do not edit. */\n")
     print("#include <private/bionic_asm.h>\n")
     for syscall in parser.syscalls:
-        if syscall.has_key("asm-%s" % arch):
+        if ("asm-%s" % arch) in syscall:
             print(syscall["asm-%s" % arch])
 
+    if arch == 'arm64':
+        print('\nNOTE_GNU_PROPERTY()\n')
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-      print "Usage: gensyscalls.py ARCH SOURCE_FILE"
+      print("Usage: gensyscalls.py ARCH SOURCE_FILE")
       sys.exit(1)
 
     arch = sys.argv[1]

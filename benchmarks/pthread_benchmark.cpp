@@ -53,15 +53,14 @@ static void BM_pthread_setspecific(benchmark::State& state) {
 }
 BIONIC_BENCHMARK(BM_pthread_setspecific);
 
-static void DummyPthreadOnceInitFunction() {
-}
+static void NoOpPthreadOnceInitFunction() {}
 
 static void BM_pthread_once(benchmark::State& state) {
   static pthread_once_t once = PTHREAD_ONCE_INIT;
-  pthread_once(&once, DummyPthreadOnceInitFunction);
+  pthread_once(&once, NoOpPthreadOnceInitFunction);
 
   while (state.KeepRunning()) {
-    pthread_once(&once, DummyPthreadOnceInitFunction);
+    pthread_once(&once, NoOpPthreadOnceInitFunction);
   }
 }
 BIONIC_BENCHMARK(BM_pthread_once);
@@ -76,6 +75,7 @@ static void BM_pthread_mutex_lock(benchmark::State& state) {
 }
 BIONIC_BENCHMARK(BM_pthread_mutex_lock);
 
+#if !defined(ANDROID_HOST_MUSL)
 static void BM_pthread_mutex_lock_ERRORCHECK(benchmark::State& state) {
   pthread_mutex_t mutex = PTHREAD_ERRORCHECK_MUTEX_INITIALIZER_NP;
 
@@ -85,7 +85,9 @@ static void BM_pthread_mutex_lock_ERRORCHECK(benchmark::State& state) {
   }
 }
 BIONIC_BENCHMARK(BM_pthread_mutex_lock_ERRORCHECK);
+#endif
 
+#if !defined(ANDROID_HOST_MUSL)
 static void BM_pthread_mutex_lock_RECURSIVE(benchmark::State& state) {
   pthread_mutex_t mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
@@ -95,6 +97,7 @@ static void BM_pthread_mutex_lock_RECURSIVE(benchmark::State& state) {
   }
 }
 BIONIC_BENCHMARK(BM_pthread_mutex_lock_RECURSIVE);
+#endif
 
 namespace {
 struct PIMutex {

@@ -60,6 +60,9 @@
 #if defined(__NR_brk)
   #define SYS_brk __NR_brk
 #endif
+#if defined(__NR_cachestat)
+  #define SYS_cachestat __NR_cachestat
+#endif
 #if defined(__NR_capget)
   #define SYS_capget __NR_capget
 #endif
@@ -120,6 +123,9 @@
 #if defined(__NR_close)
   #define SYS_close __NR_close
 #endif
+#if defined(__NR_close_range)
+  #define SYS_close_range __NR_close_range
+#endif
 #if defined(__NR_connect)
   #define SYS_connect __NR_connect
 #endif
@@ -159,6 +165,9 @@
 #if defined(__NR_epoll_pwait)
   #define SYS_epoll_pwait __NR_epoll_pwait
 #endif
+#if defined(__NR_epoll_pwait2)
+  #define SYS_epoll_pwait2 __NR_epoll_pwait2
+#endif
 #if defined(__NR_epoll_wait)
   #define SYS_epoll_wait __NR_epoll_wait
 #endif
@@ -186,6 +195,9 @@
 #if defined(__NR_faccessat)
   #define SYS_faccessat __NR_faccessat
 #endif
+#if defined(__NR_faccessat2)
+  #define SYS_faccessat2 __NR_faccessat2
+#endif
 #if defined(__NR_fadvise64)
   #define SYS_fadvise64 __NR_fadvise64
 #endif
@@ -209,6 +221,9 @@
 #endif
 #if defined(__NR_fchmodat)
   #define SYS_fchmodat __NR_fchmodat
+#endif
+#if defined(__NR_fchmodat2)
+  #define SYS_fchmodat2 __NR_fchmodat2
 #endif
 #if defined(__NR_fchown)
   #define SYS_fchown __NR_fchown
@@ -291,8 +306,20 @@
 #if defined(__NR_futex)
   #define SYS_futex __NR_futex
 #endif
+#if defined(__NR_futex_requeue)
+  #define SYS_futex_requeue __NR_futex_requeue
+#endif
 #if defined(__NR_futex_time64)
   #define SYS_futex_time64 __NR_futex_time64
+#endif
+#if defined(__NR_futex_wait)
+  #define SYS_futex_wait __NR_futex_wait
+#endif
+#if defined(__NR_futex_waitv)
+  #define SYS_futex_waitv __NR_futex_waitv
+#endif
+#if defined(__NR_futex_wake)
+  #define SYS_futex_wake __NR_futex_wake
 #endif
 #if defined(__NR_futimesat)
   #define SYS_futimesat __NR_futimesat
@@ -498,6 +525,15 @@
 #if defined(__NR_kill)
   #define SYS_kill __NR_kill
 #endif
+#if defined(__NR_landlock_add_rule)
+  #define SYS_landlock_add_rule __NR_landlock_add_rule
+#endif
+#if defined(__NR_landlock_create_ruleset)
+  #define SYS_landlock_create_ruleset __NR_landlock_create_ruleset
+#endif
+#if defined(__NR_landlock_restrict_self)
+  #define SYS_landlock_restrict_self __NR_landlock_restrict_self
+#endif
 #if defined(__NR_lchown)
   #define SYS_lchown __NR_lchown
 #endif
@@ -515,6 +551,9 @@
 #endif
 #if defined(__NR_listen)
   #define SYS_listen __NR_listen
+#endif
+#if defined(__NR_listmount)
+  #define SYS_listmount __NR_listmount
 #endif
 #if defined(__NR_listxattr)
   #define SYS_listxattr __NR_listxattr
@@ -540,6 +579,15 @@
 #if defined(__NR_lsetxattr)
   #define SYS_lsetxattr __NR_lsetxattr
 #endif
+#if defined(__NR_lsm_get_self_attr)
+  #define SYS_lsm_get_self_attr __NR_lsm_get_self_attr
+#endif
+#if defined(__NR_lsm_list_modules)
+  #define SYS_lsm_list_modules __NR_lsm_list_modules
+#endif
+#if defined(__NR_lsm_set_self_attr)
+  #define SYS_lsm_set_self_attr __NR_lsm_set_self_attr
+#endif
 #if defined(__NR_lstat)
   #define SYS_lstat __NR_lstat
 #endif
@@ -549,6 +597,9 @@
 #if defined(__NR_madvise)
   #define SYS_madvise __NR_madvise
 #endif
+#if defined(__NR_map_shadow_stack)
+  #define SYS_map_shadow_stack __NR_map_shadow_stack
+#endif
 #if defined(__NR_mbind)
   #define SYS_mbind __NR_mbind
 #endif
@@ -557,6 +608,9 @@
 #endif
 #if defined(__NR_memfd_create)
   #define SYS_memfd_create __NR_memfd_create
+#endif
+#if defined(__NR_memfd_secret)
+  #define SYS_memfd_secret __NR_memfd_secret
 #endif
 #if defined(__NR_migrate_pages)
   #define SYS_migrate_pages __NR_migrate_pages
@@ -597,6 +651,9 @@
 #if defined(__NR_mount)
   #define SYS_mount __NR_mount
 #endif
+#if defined(__NR_mount_setattr)
+  #define SYS_mount_setattr __NR_mount_setattr
+#endif
 #if defined(__NR_move_mount)
   #define SYS_move_mount __NR_move_mount
 #endif
@@ -635,6 +692,9 @@
 #endif
 #if defined(__NR_mremap)
   #define SYS_mremap __NR_mremap
+#endif
+#if defined(__NR_mseal)
+  #define SYS_mseal __NR_mseal
 #endif
 #if defined(__NR_msgctl)
   #define SYS_msgctl __NR_msgctl
@@ -702,6 +762,9 @@
 #if defined(__NR_openat)
   #define SYS_openat __NR_openat
 #endif
+#if defined(__NR_openat2)
+  #define SYS_openat2 __NR_openat2
+#endif
 #if defined(__NR_pause)
   #define SYS_pause __NR_pause
 #endif
@@ -719,6 +782,9 @@
 #endif
 #if defined(__NR_personality)
   #define SYS_personality __NR_personality
+#endif
+#if defined(__NR_pidfd_getfd)
+  #define SYS_pidfd_getfd __NR_pidfd_getfd
 #endif
 #if defined(__NR_pidfd_open)
   #define SYS_pidfd_open __NR_pidfd_open
@@ -768,6 +834,12 @@
 #if defined(__NR_prlimit64)
   #define SYS_prlimit64 __NR_prlimit64
 #endif
+#if defined(__NR_process_madvise)
+  #define SYS_process_madvise __NR_process_madvise
+#endif
+#if defined(__NR_process_mrelease)
+  #define SYS_process_mrelease __NR_process_mrelease
+#endif
 #if defined(__NR_process_vm_readv)
   #define SYS_process_vm_readv __NR_process_vm_readv
 #endif
@@ -806,6 +878,9 @@
 #endif
 #if defined(__NR_quotactl)
   #define SYS_quotactl __NR_quotactl
+#endif
+#if defined(__NR_quotactl_fd)
+  #define SYS_quotactl_fd __NR_quotactl_fd
 #endif
 #if defined(__NR_read)
   #define SYS_read __NR_read
@@ -863,6 +938,12 @@
 #endif
 #if defined(__NR_restart_syscall)
   #define SYS_restart_syscall __NR_restart_syscall
+#endif
+#if defined(__NR_riscv_flush_icache)
+  #define SYS_riscv_flush_icache __NR_riscv_flush_icache
+#endif
+#if defined(__NR_riscv_hwprobe)
+  #define SYS_riscv_hwprobe __NR_riscv_hwprobe
 #endif
 #if defined(__NR_rmdir)
   #define SYS_rmdir __NR_rmdir
@@ -980,6 +1061,9 @@
 #endif
 #if defined(__NR_set_mempolicy)
   #define SYS_set_mempolicy __NR_set_mempolicy
+#endif
+#if defined(__NR_set_mempolicy_home_node)
+  #define SYS_set_mempolicy_home_node __NR_set_mempolicy_home_node
 #endif
 #if defined(__NR_set_robust_list)
   #define SYS_set_robust_list __NR_set_robust_list
@@ -1148,6 +1232,9 @@
 #endif
 #if defined(__NR_statfs64)
   #define SYS_statfs64 __NR_statfs64
+#endif
+#if defined(__NR_statmount)
+  #define SYS_statmount __NR_statmount
 #endif
 #if defined(__NR_statx)
   #define SYS_statx __NR_statx

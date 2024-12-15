@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _LINUX_TIPC_NETLINK_H_
 #define _LINUX_TIPC_NETLINK_H_
 #define TIPC_GENL_V2_NAME "TIPCv2"
@@ -44,6 +32,9 @@ enum {
   TIPC_NL_PEER_REMOVE,
   TIPC_NL_BEARER_ADD,
   TIPC_NL_UDP_GET_REMOTEIP,
+  TIPC_NL_KEY_SET,
+  TIPC_NL_KEY_FLUSH,
+  TIPC_NL_ADDR_LEGACY_GET,
   __TIPC_NL_CMD_MAX,
   TIPC_NL_CMD_MAX = __TIPC_NL_CMD_MAX - 1
 };
@@ -122,6 +113,10 @@ enum {
   TIPC_NLA_NODE_UNSPEC,
   TIPC_NLA_NODE_ADDR,
   TIPC_NLA_NODE_UP,
+  TIPC_NLA_NODE_ID,
+  TIPC_NLA_NODE_KEY,
+  TIPC_NLA_NODE_KEY_MASTER,
+  TIPC_NLA_NODE_REKEYING,
   __TIPC_NLA_NODE_MAX,
   TIPC_NLA_NODE_MAX = __TIPC_NLA_NODE_MAX - 1
 };
@@ -131,6 +126,7 @@ enum {
   TIPC_NLA_NET_ADDR,
   TIPC_NLA_NET_NODEID,
   TIPC_NLA_NET_NODEID_W1,
+  TIPC_NLA_NET_ADDR_LEGACY,
   __TIPC_NLA_NET_MAX,
   TIPC_NLA_NET_MAX = __TIPC_NLA_NET_MAX - 1
 };

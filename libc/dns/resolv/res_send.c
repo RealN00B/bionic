@@ -680,8 +680,7 @@ res_nsend(res_state statp,
 /* Private */
 
 static int
-get_salen(sa)
-	const struct sockaddr *sa;
+get_salen(const struct sockaddr *sa)
 {
 
 #ifdef HAVE_SA_LEN
@@ -702,9 +701,7 @@ get_salen(sa)
  * pick appropriate nsaddr_list for use.  see res_init() for initialization.
  */
 static struct sockaddr *
-get_nsaddr(statp, n)
-	res_state statp;
-	size_t n;
+get_nsaddr(res_state statp, size_t n)
 {
 
 	if (!statp->nsaddr_list[n].sin_family && EXT(statp).ext) {
@@ -948,6 +945,8 @@ send_vc(res_state statp, struct __res_params* params,
 			else
 				break;
 		}
+		// return size should never exceed container size
+		resplen = anssiz;
 	}
 	/*
 	 * If the calling applicating has bailed out of
@@ -960,7 +959,7 @@ send_vc(res_state statp, struct __res_params* params,
 		DprintQ((statp->options & RES_DEBUG) ||
 			(statp->pfcode & RES_PRF_REPLY),
 			(stdout, ";; old answer (unexpected):\n"),
-			ans, (resplen > anssiz) ? anssiz: resplen);
+			ans, resplen);
 		goto read_len;
 	}
 

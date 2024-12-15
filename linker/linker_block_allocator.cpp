@@ -27,19 +27,19 @@
  */
 
 #include "linker_block_allocator.h"
+
 #include <inttypes.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/param.h>
 #include <sys/prctl.h>
 #include <unistd.h>
 
-static constexpr size_t kAllocateSize = PAGE_SIZE * 100;
-static_assert(kAllocateSize % PAGE_SIZE == 0, "Invalid kAllocateSize.");
+#include "linker_debug.h"
 
-// the multiplier should be power of 2
-static constexpr size_t round_up(size_t size, size_t multiplier) {
-  return (size + (multiplier - 1)) & ~(multiplier-1);
-}
+static constexpr size_t kMaxPageSize = 65536;
+static constexpr size_t kAllocateSize = kMaxPageSize * 6;
+static_assert(kAllocateSize % kMaxPageSize == 0, "Invalid kAllocateSize.");
 
 struct LinkerBlockAllocatorPage {
   LinkerBlockAllocatorPage* next;
@@ -51,13 +51,14 @@ struct FreeBlockInfo {
   size_t num_free_blocks;
 };
 
+static_assert(kBlockSizeAlign >= alignof(FreeBlockInfo));
+static_assert(kBlockSizeMin == sizeof(FreeBlockInfo));
+
 LinkerBlockAllocator::LinkerBlockAllocator(size_t block_size)
-  : block_size_(
-      round_up(block_size < sizeof(FreeBlockInfo) ? sizeof(FreeBlockInfo) : block_size, 16)),
-    page_list_(nullptr),
-    free_block_list_(nullptr),
-    allocated_(0)
-{}
+    : block_size_(__BIONIC_ALIGN(MAX(block_size, kBlockSizeMin), kBlockSizeAlign)),
+      page_list_(nullptr),
+      free_block_list_(nullptr),
+      allocated_(0) {}
 
 void* LinkerBlockAllocator::alloc() {
   if (free_block_list_ == nullptr) {
@@ -88,16 +89,10 @@ void LinkerBlockAllocator::free(void* block) {
   }
 
   LinkerBlockAllocatorPage* page = find_page(block);
-
-  if (page == nullptr) {
-    abort();
-  }
+  CHECK(page != nullptr);
 
   ssize_t offset = reinterpret_cast<uint8_t*>(block) - page->bytes;
-
-  if (offset % block_size_ != 0) {
-    abort();
-  }
+  CHECK((offset % block_size_) == 0);
 
   memset(block, 0, block_size_);
 
@@ -114,7 +109,7 @@ void LinkerBlockAllocator::free(void* block) {
 void LinkerBlockAllocator::protect_all(int prot) {
   for (LinkerBlockAllocatorPage* page = page_list_; page != nullptr; page = page->next) {
     if (mprotect(page, kAllocateSize, prot) == -1) {
-      abort();
+      async_safe_fatal("mprotect(%p, %zu, %d) failed: %m", page, kAllocateSize, prot);
     }
   }
 }
@@ -125,10 +120,7 @@ void LinkerBlockAllocator::create_new_page() {
 
   LinkerBlockAllocatorPage* page = reinterpret_cast<LinkerBlockAllocatorPage*>(
       mmap(nullptr, kAllocateSize, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0));
-
-  if (page == MAP_FAILED) {
-    abort(); // oom
-  }
+  CHECK(page != MAP_FAILED);
 
   prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, page, kAllocateSize, "linker_alloc");
 
@@ -143,9 +135,7 @@ void LinkerBlockAllocator::create_new_page() {
 }
 
 LinkerBlockAllocatorPage* LinkerBlockAllocator::find_page(void* block) {
-  if (block == nullptr) {
-    abort();
-  }
+  CHECK(block != nullptr);
 
   LinkerBlockAllocatorPage* page = page_list_;
   while (page != nullptr) {
@@ -157,7 +147,7 @@ LinkerBlockAllocatorPage* LinkerBlockAllocator::find_page(void* block) {
     page = page->next;
   }
 
-  abort();
+  async_safe_fatal("couldn't find page for %p", block);
 }
 
 void LinkerBlockAllocator::purge() {

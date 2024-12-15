@@ -1,5 +1,5 @@
 /*-
- * SPDX-License-Identifier: BSD-2-Clause-FreeBSD
+ * SPDX-License-Identifier: BSD-2-Clause
  *
  * Copyright (c) 2012 Stephen Montgomery-Smith <stephen@FreeBSD.ORG>
  * All rights reserved.
@@ -25,9 +25,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/catrig.c 336362 2018-07-17 07:42:14Z bde $");
 
 #include <complex.h>
 #include <float.h>

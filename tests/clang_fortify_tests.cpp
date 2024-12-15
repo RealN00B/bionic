@@ -14,21 +14,24 @@
  * limitations under the License.
  */
 
-#ifndef __clang__
-#error "Non-clang isn't supported"
-#endif
-
+//
 // Clang compile-time and run-time tests for Bionic's FORTIFY.
 //
-// This file is compiled in two configurations ways to give us a sane set of tests for clang's
-// FORTIFY implementation.
+
+// This file is compiled in two configurations to give us reasonable coverage of clang's
+// FORTIFY implementation:
 //
-// One configuration uses clang's diagnostic consumer
+// 1. For compile-time checks, we use clang's diagnostic consumer
 // (https://clang.llvm.org/doxygen/classclang_1_1VerifyDiagnosticConsumer.html#details)
 // to check diagnostics (e.g. the expected-* comments everywhere).
 //
-// Please note that this test does things like leaking memory. That's WAI.
+// 2. For run-time checks, we build and run as regular gtests.
 
+// Note that these tests do things like leaking memory. That's WAI.
+
+//
+// Configuration for the compile-time checks. (These comments have side effects!)
+//
 // Silence all "from 'diagnose_if'" `note`s from anywhere, including headers; they're uninteresting
 // for this test case, and their line numbers may change over time.
 // expected-note@* 0+{{from 'diagnose_if'}}
@@ -39,8 +42,8 @@
 // And finally, all explicitly-unavailable-here complaints from headers are
 // uninteresting
 // expected-note@* 0+{{has been explicitly marked unavailable here}}
-
-// Note that some of these diags come from clang itself, while others come from
+//
+// Note that some of these diagnostics come from clang itself, while others come from
 // `diagnose_if`s sprinkled throughout Bionic.
 
 #ifndef _FORTIFY_SOURCE
@@ -87,42 +90,14 @@
 #include <wchar.h>
 
 #ifndef COMPILATION_TESTS
+#include <android-base/silent_death_test.h>
 #include <gtest/gtest.h>
-#include "BionicDeathTest.h"
 
 #define CONCAT2(x, y) x##y
 #define CONCAT(x, y) CONCAT2(x, y)
-#define FORTIFY_TEST_NAME CONCAT(clang_fortify_test_, _FORTIFY_SOURCE)
+#define FORTIFY_TEST_NAME CONCAT(CONCAT(clang_fortify_test_, _FORTIFY_SOURCE), _DeathTest)
 
-namespace {
-struct FORTIFY_TEST_NAME : BionicDeathTest {
- protected:
-  void SetUp() override {
-    stdin_saved = dup(STDIN_FILENO);
-    if (stdin_saved < 0) err(1, "failed to dup stdin");
-
-    int devnull = open("/dev/null", O_RDONLY);
-    if (devnull < 0) err(1, "failed to open /dev/null");
-
-    if (!dup2(devnull, STDIN_FILENO)) err(1, "failed to overwrite stdin");
-    static_cast<void>(close(devnull));
-
-    BionicDeathTest::SetUp();
-  }
-
-  void TearDown() override {
-    if (stdin_saved == -1) return;
-    if (!dup2(stdin_saved, STDIN_FILENO)) warn("failed to restore stdin");
-
-    static_cast<void>(close(stdin_saved));
-
-    BionicDeathTest::TearDown();
-  }
-
- private:
-  int stdin_saved = -1;
-};
-}  // namespace
+using FORTIFY_TEST_NAME = SilentDeathTest;
 
 template <typename Fn>
 __attribute__((noreturn)) static void ExitAfter(Fn&& f) {
@@ -146,7 +121,7 @@ __attribute__((noreturn)) static void ExitAfter(Fn&& f) {
 #define EXPECT_FORTIFY_DEATH_STRUCT EXPECT_NO_DEATH
 #endif
 
-#define FORTIFY_TEST(test_name) TEST(FORTIFY_TEST_NAME, test_name)
+#define FORTIFY_TEST(test_name) TEST_F(FORTIFY_TEST_NAME, test_name)
 
 #else  // defined(COMPILATION_TESTS)
 
@@ -167,6 +142,8 @@ FORTIFY_TEST(string) {
     EXPECT_FORTIFY_DEATH(memcpy(small_buffer, large_buffer, sizeof(large_buffer)));
     // expected-error@+1{{will always overflow}}
     EXPECT_FORTIFY_DEATH(memmove(small_buffer, large_buffer, sizeof(large_buffer)));
+    // FIXME(gbiv): look into removing mempcpy's diagnose_if bits once the b/149839606 roll sticks.
+    // expected-error@+2{{will always overflow}}
     // expected-error@+1{{size bigger than buffer}}
     EXPECT_FORTIFY_DEATH(mempcpy(small_buffer, large_buffer, sizeof(large_buffer)));
     // expected-error@+1{{will always overflow}}
@@ -183,6 +160,7 @@ FORTIFY_TEST(string) {
     const char large_string[] = "Hello!!!";
     static_assert(sizeof(large_string) > sizeof(small_buffer), "");
 
+    // expected-error@+2{{will always overflow}}
     // expected-error@+1{{string bigger than buffer}}
     EXPECT_FORTIFY_DEATH(strcpy(small_buffer, large_string));
     // expected-error@+1{{string bigger than buffer}}
@@ -220,6 +198,7 @@ FORTIFY_TEST(string) {
     static_assert(sizeof(small_string) > sizeof(split.tiny_buffer), "");
 
 #if _FORTIFY_SOURCE > 1
+    // expected-error@+3{{will always overflow}}
     // expected-error@+2{{string bigger than buffer}}
 #endif
     EXPECT_FORTIFY_DEATH_STRUCT(strcpy(split.tiny_buffer, small_string));
@@ -400,6 +379,8 @@ static void testFormatStrings() {
 }
 
 static void testStdlib() {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
   char path_buffer[PATH_MAX - 1];
   // expected-warning@+2{{ignoring return value of function}}
   // expected-error@+1{{must be NULL or a pointer to a buffer with >= PATH_MAX bytes}}
@@ -414,6 +395,7 @@ static void testStdlib() {
   // expected-warning@+2{{ignoring return value of function}}
   // expected-error@+1{{flipped arguments?}}
   realpath(nullptr, nullptr);
+#pragma clang diagnostic pop
 }
 }  // namespace compilation_tests
 #endif

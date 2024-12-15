@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI_LINUX_AUDIT_H_
 #define _UAPI_LINUX_AUDIT_H_
 #include <linux/types.h>
@@ -81,6 +69,12 @@
 #define AUDIT_FANOTIFY 1331
 #define AUDIT_TIME_INJOFFSET 1332
 #define AUDIT_TIME_ADJNTPVAL 1333
+#define AUDIT_BPF 1334
+#define AUDIT_EVENT_LISTENER 1335
+#define AUDIT_URINGOP 1336
+#define AUDIT_OPENAT2 1337
+#define AUDIT_DM_CTRL 1338
+#define AUDIT_DM_EVENT 1339
 #define AUDIT_AVC 1400
 #define AUDIT_SELINUX_ERR 1401
 #define AUDIT_AVC_PATH 1402
@@ -106,6 +100,7 @@
 #define AUDIT_ANOM_PROMISCUOUS 1700
 #define AUDIT_ANOM_ABEND 1701
 #define AUDIT_ANOM_LINK 1702
+#define AUDIT_ANOM_CREAT 1703
 #define AUDIT_INTEGRITY_DATA 1800
 #define AUDIT_INTEGRITY_METADATA 1801
 #define AUDIT_INTEGRITY_STATUS 1802
@@ -123,7 +118,8 @@
 #define AUDIT_FILTER_EXCLUDE 0x05
 #define AUDIT_FILTER_TYPE AUDIT_FILTER_EXCLUDE
 #define AUDIT_FILTER_FS 0x06
-#define AUDIT_NR_FILTERS 7
+#define AUDIT_FILTER_URING_EXIT 0x07
+#define AUDIT_NR_FILTERS 8
 #define AUDIT_FILTER_PREPEND 0x10
 #define AUDIT_NEVER 0
 #define AUDIT_POSSIBLE 1
@@ -132,7 +128,7 @@
 #define AUDIT_MAX_KEY_LEN 256
 #define AUDIT_BITMASK_SIZE 64
 #define AUDIT_WORD(nr) ((__u32) ((nr) / 32))
-#define AUDIT_BIT(nr) (1 << ((nr) - AUDIT_WORD(nr) * 32))
+#define AUDIT_BIT(nr) (1U << ((nr) - AUDIT_WORD(nr) * 32))
 #define AUDIT_SYSCALL_CLASSES 16
 #define AUDIT_CLASS_DIR_WRITE 0
 #define AUDIT_CLASS_DIR_WRITE_32 1
@@ -245,6 +241,7 @@ enum {
 #define AUDIT_STATUS_BACKLOG_LIMIT 0x0010
 #define AUDIT_STATUS_BACKLOG_WAIT_TIME 0x0020
 #define AUDIT_STATUS_LOST 0x0040
+#define AUDIT_STATUS_BACKLOG_WAIT_TIME_ACTUAL 0x0080
 #define AUDIT_FEATURE_BITMAP_BACKLOG_LIMIT 0x00000001
 #define AUDIT_FEATURE_BITMAP_BACKLOG_WAIT_TIME 0x00000002
 #define AUDIT_FEATURE_BITMAP_EXECUTABLE_PATH 0x00000004
@@ -314,6 +311,8 @@ enum {
 #define AUDIT_ARCH_UNICORE (EM_UNICORE | __AUDIT_ARCH_LE)
 #define AUDIT_ARCH_X86_64 (EM_X86_64 | __AUDIT_ARCH_64BIT | __AUDIT_ARCH_LE)
 #define AUDIT_ARCH_XTENSA (EM_XTENSA)
+#define AUDIT_ARCH_LOONGARCH32 (EM_LOONGARCH | __AUDIT_ARCH_LE)
+#define AUDIT_ARCH_LOONGARCH64 (EM_LOONGARCH | __AUDIT_ARCH_64BIT | __AUDIT_ARCH_LE)
 #define AUDIT_PERM_EXEC 1
 #define AUDIT_PERM_WRITE 2
 #define AUDIT_PERM_READ 4
@@ -339,6 +338,7 @@ struct audit_status {
     __u32 feature_bitmap;
   };
   __u32 backlog_wait_time;
+  __u32 backlog_wait_time_actual;
 };
 struct audit_features {
 #define AUDIT_FEATURE_VERSION 1
@@ -367,6 +367,6 @@ struct audit_rule_data {
   __u32 values[AUDIT_MAX_FIELDS];
   __u32 fieldflags[AUDIT_MAX_FIELDS];
   __u32 buflen;
-  char buf[0];
+  char buf[];
 };
 #endif

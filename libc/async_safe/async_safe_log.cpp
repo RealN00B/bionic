@@ -30,6 +30,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/net.h>
 #include <pthread.h>
 #include <stdarg.h>
 #include <stddef.h>
@@ -47,14 +48,22 @@
 #include <android/set_abort_message.h>
 #include <async_safe/log.h>
 
-#include "private/CachedProperty.h"
 #include "private/ErrnoRestorer.h"
-#include "private/ScopedPthreadMutexLocker.h"
 
-// Don't call libc's close, since it might call back into us as a result of fdsan.
+// Don't call libc's close or socket, since it might call back into us as a result of fdsan/fdtrack.
 #pragma GCC poison close
 static int __close(int fd) {
   return syscall(__NR_close, fd);
+}
+
+static int __socket(int domain, int type, int protocol) {
+#if defined(__i386__)
+  unsigned long args[3] = {static_cast<unsigned long>(domain), static_cast<unsigned long>(type),
+                           static_cast<unsigned long>(protocol)};
+  return syscall(__NR_socketcall, SYS_SOCKET, &args);
+#else
+  return syscall(__NR_socket, domain, type, protocol);
+#endif
 }
 
 // Must be kept in sync with frameworks/base/core/java/android/util/EventLog.java.
@@ -196,10 +205,12 @@ static void format_integer(char* buf, size_t buf_size, uint64_t value, char conv
   // Decode the conversion specifier.
   int is_signed = (conversion == 'd' || conversion == 'i' || conversion == 'o');
   int base = 10;
-  if (conversion == 'x' || conversion == 'X') {
+  if (tolower(conversion) == 'x') {
     base = 16;
   } else if (conversion == 'o') {
     base = 8;
+  } else if (tolower(conversion) == 'b') {
+    base = 2;
   }
   bool caps = (conversion == 'X');
 
@@ -240,9 +251,10 @@ static void out_vformat(Out& o, const char* format, va_list args) {
     char sign = '\0';
     int width = -1;
     int prec = -1;
+    bool alternate = false;
     size_t bytelen = sizeof(int);
     int slen;
-    char buffer[32]; /* temporary buffer used to format numbers */
+    char buffer[64];  // temporary buffer used to format numbers/format errno string
 
     char c;
 
@@ -281,6 +293,9 @@ static void out_vformat(Out& o, const char* format, va_list args) {
         continue;
       } else if (c == ' ' || c == '+') {
         sign = c;
+        continue;
+      } else if (c == '#') {
+        alternate = true;
         continue;
       }
       break;
@@ -333,9 +348,6 @@ static void out_vformat(Out& o, const char* format, va_list args) {
     if (c == 's') {
       /* string */
       str = va_arg(args, const char*);
-      if (str == nullptr) {
-        str = "(null)";
-      }
     } else if (c == 'c') {
       /* character */
       /* NOTE: char is promoted to int when passed through the stack */
@@ -346,7 +358,22 @@ static void out_vformat(Out& o, const char* format, va_list args) {
       buffer[0] = '0';
       buffer[1] = 'x';
       format_integer(buffer + 2, sizeof(buffer) - 2, value, 'x');
-    } else if (c == 'd' || c == 'i' || c == 'o' || c == 'u' || c == 'x' || c == 'X') {
+    } else if (c == 'm') {
+#if __ANDROID_API_LEVEL__ >= 35 // This library is used in mainline modules.
+      if (alternate) {
+        const char* name = strerrorname_np(errno);
+        if (name) {
+          strcpy(buffer, name);
+        } else {
+          format_integer(buffer, sizeof(buffer), errno, 'd');
+        }
+      } else
+#endif
+      {
+        strerror_r(errno, buffer, sizeof(buffer));
+      }
+    } else if (tolower(c) == 'b' || c == 'd' || c == 'i' || c == 'o' || c == 'u' ||
+               tolower(c) == 'x') {
       /* integers - first read value from stack */
       uint64_t value;
       int is_signed = (c == 'd' || c == 'i' || c == 'o');
@@ -377,13 +404,28 @@ static void out_vformat(Out& o, const char* format, va_list args) {
         value = static_cast<uint64_t>((static_cast<int64_t>(value << shift)) >> shift);
       }
 
-      /* format the number properly into our buffer */
-      format_integer(buffer, sizeof(buffer), value, c);
+      if (alternate && value != 0 && (tolower(c) == 'x' || c == 'o' || tolower(c) == 'b')) {
+        if (tolower(c) == 'x' || tolower(c) == 'b') {
+          buffer[0] = '0';
+          buffer[1] = c;
+          format_integer(buffer + 2, sizeof(buffer) - 2, value, c);
+        } else {
+          buffer[0] = '0';
+          format_integer(buffer + 1, sizeof(buffer) - 1, value, c);
+        }
+      } else {
+        /* format the number properly into our buffer */
+        format_integer(buffer, sizeof(buffer), value, c);
+      }
     } else if (c == '%') {
       buffer[0] = '%';
       buffer[1] = '\0';
     } else {
       __assert(__FILE__, __LINE__, "conversion specifier unsupported");
+    }
+
+    if (str == nullptr) {
+      str = "(null)";
     }
 
     /* if we are here, 'str' points to the content that must be
@@ -460,7 +502,7 @@ static int open_log_socket() {
   // found that all logd crashes thus far have had no problem stuffing
   // the UNIX domain socket and moving on so not critical *today*.
 
-  int log_fd = TEMP_FAILURE_RETRY(socket(PF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0));
+  int log_fd = TEMP_FAILURE_RETRY(__socket(PF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0));
   if (log_fd == -1) {
     return -1;
   }

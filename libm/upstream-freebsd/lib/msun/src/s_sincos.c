@@ -12,9 +12,6 @@
  * algorithms are contained in the original files.
  */
 
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_sincos.c 319047 2017-05-28 06:13:38Z mmel $");
-
 #include <float.h>
 
 #include "math.h"

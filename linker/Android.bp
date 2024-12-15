@@ -1,3 +1,29 @@
+package {
+    default_team: "trendy_team_native_tools_libraries",
+    default_applicable_licenses: ["bionic_linker_license"],
+}
+
+license {
+    name: "bionic_linker_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-BSD",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
+linker_common_flags = [
+    "-fno-stack-protector",
+    "-Wstrict-overflow=5",
+    "-fvisibility=hidden",
+    "-Wall",
+    "-Wextra",
+    "-Wunused",
+    "-Werror",
+]
+
 // ========================================================
 // linker_wrapper - Linux Bionic (on the host)
 // ========================================================
@@ -13,38 +39,31 @@ cc_object {
     name: "linker_wrapper",
     host_supported: true,
     device_supported: false,
+    enabled: false,
     target: {
         linux_bionic: {
             enabled: true,
         },
-        linux_glibc: {
-            enabled: false,
-        },
-        darwin: {
-            enabled: false,
-        },
     },
 
-    cflags: [
-        "-fno-stack-protector",
-        "-Wstrict-overflow=5",
-        "-fvisibility=hidden",
-        "-Wall",
-        "-Wextra",
-        "-Wno-unused",
-        "-Werror",
-    ],
+    cflags: linker_common_flags,
 
     srcs: [
         "linker_wrapper.cpp",
     ],
     arch: {
+        arm64: {
+            srcs: ["arch/arm64/linker_wrapper_begin.S"],
+        },
+        riscv64: {
+            srcs: ["arch/riscv64/linker_wrapper_begin.S"],
+        },
         x86_64: {
-            srcs: ["arch/x86_64/begin.S"],
+            srcs: ["arch/x86_64/linker_wrapper_begin.S"],
         },
     },
 
-    prefix_symbols: "__dlwrap_",
+    header_libs: ["libc_headers"],
 
     // We need to access Bionic private headers in the linker.
     include_dirs: ["bionic/libc"],
@@ -66,26 +85,8 @@ cc_defaults {
         },
     },
 
-    cflags: [
-        "-fno-stack-protector",
-        "-Wstrict-overflow=5",
-        "-fvisibility=hidden",
-        "-Wall",
-        "-Wextra",
-        "-Wunused",
-        "-Werror",
-    ],
-
-    // TODO: split out the asflags.
-    asflags: [
-        "-fno-stack-protector",
-        "-Wstrict-overflow=5",
-        "-fvisibility=hidden",
-        "-Wall",
-        "-Wextra",
-        "-Wunused",
-        "-Werror",
-    ],
+    cflags: linker_common_flags,
+    asflags: linker_common_flags,
 
     product_variables: {
         debuggable: {
@@ -102,7 +103,7 @@ cc_defaults {
 
         "libasync_safe",
 
-        "liblog",
+        "liblog_for_runtime_apex",
     ],
 
     // We need to access Bionic private headers in the linker.
@@ -119,27 +120,43 @@ cc_defaults {
     name: "linker_all_targets",
     defaults: ["linux_bionic_supported"],
     recovery_available: true,
+    vendor_ramdisk_available: true,
     native_bridge_supported: true,
 }
 
 cc_library_static {
     name: "liblinker_main",
-    defaults: ["linker_defaults", "linker_all_targets"],
+    defaults: [
+        "linker_defaults",
+        "linker_all_targets",
+    ],
     srcs: ["linker_main.cpp"],
 
     // Ensure that the compiler won't insert string function calls before ifuncs are resolved.
     cflags: ["-ffreestanding"],
+    apex_available: [
+        "com.android.runtime",
+    ],
 }
 
 cc_library_static {
     name: "liblinker_malloc",
-    defaults: ["linker_defaults", "linker_all_targets"],
+    defaults: [
+        "linker_defaults",
+        "linker_all_targets",
+    ],
     srcs: ["linker_memory.cpp"],
+    apex_available: [
+        "com.android.runtime",
+    ],
 }
 
 cc_library_static {
     name: "liblinker_debuggerd_stub",
-    defaults: ["linker_defaults", "linker_all_targets"],
+    defaults: [
+        "linker_defaults",
+        "linker_all_targets",
+    ],
     srcs: ["linker_debuggerd_stub.cpp"],
 }
 
@@ -152,6 +169,7 @@ filegroup {
     srcs: [
         "dlfcn.cpp",
         "linker.cpp",
+        "linker_auxv.cpp",
         "linker_block_allocator.cpp",
         "linker_dlwarning.cpp",
         "linker_cfi.cpp",
@@ -164,10 +182,12 @@ filegroup {
         "linker_namespaces.cpp",
         "linker_logger.cpp",
         "linker_mapped_file_fragment.cpp",
+        "linker_note_gnu_property.cpp",
         "linker_phdr.cpp",
         "linker_relocate.cpp",
         "linker_sdk_versions.cpp",
         "linker_soinfo.cpp",
+        "linker_transparent_hugepage_support.cpp",
         "linker_tls.cpp",
         "linker_utils.cpp",
         "rt.cpp",
@@ -192,6 +212,14 @@ filegroup {
 }
 
 filegroup {
+    name: "linker_sources_riscv64",
+    srcs: [
+        "arch/riscv64/begin.S",
+        "arch/riscv64/tlsdesc_resolver.S",
+    ],
+}
+
+filegroup {
     name: "linker_sources_x86",
     srcs: [
         "arch/x86/begin.S",
@@ -205,95 +233,81 @@ filegroup {
     ],
 }
 
-filegroup {
-    name: "linker_sources_mips",
-    srcs: [
-        "arch/mips/begin.S",
-        "linker_mips.cpp",
-    ],
-}
-
-filegroup {
-    name: "linker_sources_mips64",
-    srcs: [
-        "arch/mips64/begin.S",
-        "linker_mips.cpp",
-    ],
-}
-
 cc_defaults {
     name: "linker_version_script_overlay",
     arch: {
-        arm:    { version_script: "linker.arm.map"      },
-        arm64:  { version_script: "linker.generic.map"  },
-        x86:    { version_script: "linker.generic.map"  },
-        x86_64: { version_script: "linker.generic.map"  },
-        mips:   { version_script: "linker.generic.map"  },
-        mips64: { version_script: "linker.generic.map"  },
+        arm: {
+            version_script: "linker.arm.map",
+        },
+        arm64: {
+            version_script: "linker.generic.map",
+        },
+        riscv64: {
+            version_script: "linker.generic.map",
+        },
+        x86: {
+            version_script: "linker.generic.map",
+        },
+        x86_64: {
+            version_script: "linker.generic.map",
+        },
     },
 }
 
 // A template for the linker binary. May be inherited by native bridge implementations.
 cc_defaults {
     name: "linker_bin_template",
-    defaults: ["linker_defaults"],
+    defaults: [
+        "linker_defaults",
+        "keep_symbols",
+    ],
 
     srcs: [":linker_sources"],
 
     arch: {
         arm: {
             srcs: [":linker_sources_arm"],
-            static_libs: ["libunwind_llvm"],
         },
         arm64: {
             srcs: [":linker_sources_arm64"],
-            static_libs: ["libgcc_stripped"],
+        },
+        riscv64: {
+            srcs: [":linker_sources_riscv64"],
         },
         x86: {
             srcs: [":linker_sources_x86"],
-            static_libs: ["libgcc_stripped"],
         },
         x86_64: {
             srcs: [":linker_sources_x86_64"],
-            static_libs: ["libgcc_stripped"],
-        },
-        mips: {
-            srcs: [":linker_sources_mips"],
-            static_libs: ["libgcc_stripped"],
-        },
-        mips64: {
-            srcs: [":linker_sources_mips64"],
-            static_libs: ["libgcc_stripped"],
         },
     },
 
+    static_executable: true,
+
     // -shared is used to overwrite the -Bstatic and -static flags triggered by enabling
-    // static_executable. This dynamic linker is actually a shared object linked with static
+    // static_executable. The dynamic linker is actually a shared object linked with static
     // libraries.
     ldflags: [
         "-shared",
         "-Wl,-Bsymbolic",
         "-Wl,--exclude-libs,ALL",
         "-Wl,-soname,ld-android.so",
+        // When the linker applies its own IRELATIVE relocations, it will only read DT_REL[A] and
+        // DT_JMPREL, not DT_ANDROID_REL[A], which can also theoretically contain IRELATIVE
+        // relocations. lld has been taught to not store them there as a bug workaround (see
+        // https://llvm.org/pr86751) but the workaround could be removed at some point in the
+        // future. So we explicitly prevent it from doing so by disabling DT_ANDROID_REL[A] when
+        // linking the linker (DT_RELR cannot encode IRELATIVE relocations).
+        "-Wl,--pack-dyn-relocs=relr",
     ],
 
-    // we are going to link libc++_static manually because
-    // when stl is not set to "none" build system adds libdl
-    // to the list of static libraries which needs to be
-    // avoided in the case of building loader.
+    // We link libc++_static manually because otherwise the build system will
+    // automatically add libdl to the list of static libraries.
     stl: "none",
 
-    // we don't want crtbegin.o (because we have begin.o), so unset it
-    // just for this module
+    // We don't want crtbegin.o (because we have our own arch/*/begin.o),
+    // so unset it just for this module.
     nocrt: true,
-
-    static_executable: true,
-
-    // Leave the symbols in the shared library so that stack unwinders can produce
-    // meaningful name resolution.
-    strip: {
-        keep_symbols: true,
-    },
 
     // Insert an extra objcopy step to add prefix to symbols. This is needed to prevent gdb
     // looking up symbols in the linker by mistake.
@@ -301,28 +315,23 @@ cc_defaults {
 
     sanitize: {
         hwaddress: false,
+        memtag_stack: false,
     },
 
     static_libs: [
         "liblinker_main",
         "liblinker_malloc",
 
-        "libc++_static",
+        // We use a version of libc++ built without exceptions,
+        // because accessing EH globals uses ELF TLS,
+        // which is not supported in the loader.
+        "libc++_static_noexcept",
+
         "libc_nomalloc",
         "libc_dynamic_dispatch",
         "libm",
+        "libunwind",
     ],
-
-    // Ensure that if the linker needs __gnu_Unwind_Find_exidx, then the linker will have a
-    // definition of the symbol. The linker links against libgcc.a, whose arm32 unwinder has a weak
-    // reference to __gnu_Unwind_Find_exidx, which isn't sufficient to pull in the strong definition
-    // of __gnu_Unwind_Find_exidx from libc. An unresolved weak reference would create a
-    // non-relative dynamic relocation in the linker binary, which complicates linker startup.
-    //
-    // This line should be unnecessary because the linker's dependency on libunwind_llvm.a should
-    // override libgcc.a, but this line provides a simpler guarantee. It can be removed once the
-    // linker stops linking against libgcc.a's arm32 unwinder.
-    whole_static_libs: ["libc_unwind_static"],
 
     system_shared_libs: [],
 
@@ -342,7 +351,16 @@ cc_binary {
         "linker_version_script_overlay",
     ],
 
+    srcs: [
+        "linker_translate_path.cpp",
+    ],
+
     symlinks: ["linker_asan"],
+    arch: {
+        arm64: {
+            symlinks: ["linker_hwasan"],
+        },
+    },
     multilib: {
         lib64: {
             suffix: "64",
@@ -350,9 +368,9 @@ cc_binary {
     },
 
     compile_multilib: "both",
-    xom: false,
 
     recovery_available: true,
+    vendor_ramdisk_available: true,
     apex_available: [
         "//apex_available:platform",
         "com.android.runtime",
@@ -364,7 +382,7 @@ cc_binary {
                 "linker_debuggerd_android.cpp",
             ],
             static_libs: [
-                "libc++demangle",
+                "libc++demangle_noexcept",
                 "libdebuggerd_handler_fallback",
             ],
         },
@@ -372,8 +390,10 @@ cc_binary {
             static_libs: [
                 "liblinker_debuggerd_stub",
             ],
-        }
+        },
     },
+
+    afdo: true,
 }
 
 // ========================================================
@@ -382,38 +402,23 @@ cc_binary {
 
 sh_binary {
     name: "ldd",
-    src: "ldd",
+    src: "ldd.sh",
+}
+
+// Used to generate binaries that can be backed by transparent hugepages.
+cc_defaults {
+    name: "linker_hugepage_aligned",
+    arch: {
+        arm64: {
+            ldflags: ["-z max-page-size=0x200000"],
+        },
+        x86_64: {
+            ldflags: ["-z max-page-size=0x200000"],
+        },
+    },
 }
 
 cc_library {
-    // NOTE: --exclude-libs=libgcc.a makes sure that any symbols ld-android.so pulls from
-    // libgcc.a are made static to ld-android.so.  This in turn ensures that libraries that
-    // a) pull symbols from libgcc.a and b) depend on ld-android.so will not rely on ld-android.so
-    // to provide those symbols, but will instead pull them from libgcc.a.  Specifically,
-    // we use this property to make sure libc.so has its own copy of the code from
-    // libgcc.a it uses.
-    //
-    // DO NOT REMOVE --exclude-libs!
-
-    ldflags: [
-        "-Wl,--exclude-libs=libgcc.a",
-        "-Wl,--exclude-libs=libgcc_stripped.a",
-        "-Wl,--exclude-libs=libclang_rt.builtins-arm-android.a",
-        "-Wl,--exclude-libs=libclang_rt.builtins-aarch64-android.a",
-        "-Wl,--exclude-libs=libclang_rt.builtins-x86-android.a",
-        "-Wl,--exclude-libs=libclang_rt.builtins-x86_64-android.a",
-    ],
-
-    // for x86, exclude libgcc_eh.a for the same reasons as above
-    arch: {
-        x86: {
-            ldflags: ["-Wl,--exclude-libs=libgcc_eh.a"],
-        },
-        x86_64: {
-            ldflags: ["-Wl,--exclude-libs=libgcc_eh.a"],
-        },
-    },
-
     srcs: ["ld_android.cpp"],
     cflags: [
         "-Wall",
@@ -424,13 +429,18 @@ cc_library {
     stl: "none",
 
     name: "ld-android",
-    defaults: ["linux_bionic_supported", "linker_version_script_overlay"],
+    defaults: [
+        "linux_bionic_supported",
+        "linker_version_script_overlay",
+    ],
     ramdisk_available: true,
+    vendor_ramdisk_available: true,
     recovery_available: true,
     native_bridge_supported: true,
 
     nocrt: true,
     system_shared_libs: [],
+    header_libs: ["libc_headers"],
 
     // Opt out of native_coverage when opting out of system_shared_libs
     native_coverage: false,
@@ -447,6 +457,7 @@ cc_library {
 
 cc_test {
     name: "linker-unit-tests",
+    test_suites: ["device-tests"],
 
     cflags: [
         "-g",
@@ -464,22 +475,37 @@ cc_test {
         "linker_block_allocator_test.cpp",
         "linker_config_test.cpp",
         "linked_list_test.cpp",
+        "linker_note_gnu_property_test.cpp",
         "linker_sleb128_test.cpp",
         "linker_utils_test.cpp",
         "linker_gnu_hash_test.cpp",
+        "linker_crt_pad_segment_test.cpp",
 
         // Parts of the linker that we're testing.
+        ":elf_note_sources",
         "linker_block_allocator.cpp",
         "linker_config.cpp",
         "linker_debug.cpp",
+        "linker_note_gnu_property.cpp",
         "linker_test_globals.cpp",
         "linker_utils.cpp",
+        "linker_phdr.cpp",
+        "linker_mapped_file_fragment.cpp",
+        "linker_sdk_versions.cpp",
+        "linker_dlwarning.cpp",
     ],
 
     static_libs: [
         "libasync_safe",
         "libbase",
-        "liblog",
+        "liblog_for_runtime_apex",
+        "libprocinfo", // For procinfo::MappedFileSize()
+    ],
+
+    data_libs: [
+        "crt_pad_segment_disabled",
+        "crt_pad_segment_enabled",
+        "no_crt_pad_segment",
     ],
 
     arch: {

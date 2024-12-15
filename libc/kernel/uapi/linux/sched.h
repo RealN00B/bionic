@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI_LINUX_SCHED_H
 #define _UAPI_LINUX_SCHED_H
 #include <linux/types.h>
@@ -44,6 +32,9 @@
 #define CLONE_NEWPID 0x20000000
 #define CLONE_NEWNET 0x40000000
 #define CLONE_IO 0x80000000
+#define CLONE_CLEAR_SIGHAND 0x100000000ULL
+#define CLONE_INTO_CGROUP 0x200000000ULL
+#define CLONE_NEWTIME 0x00000080
 #ifndef __ASSEMBLY__
 struct clone_args {
   __aligned_u64 flags;
@@ -54,9 +45,14 @@ struct clone_args {
   __aligned_u64 stack;
   __aligned_u64 stack_size;
   __aligned_u64 tls;
+  __aligned_u64 set_tid;
+  __aligned_u64 set_tid_size;
+  __aligned_u64 cgroup;
 };
 #endif
 #define CLONE_ARGS_SIZE_VER0 64
+#define CLONE_ARGS_SIZE_VER1 80
+#define CLONE_ARGS_SIZE_VER2 88
 #define SCHED_NORMAL 0
 #define SCHED_FIFO 1
 #define SCHED_RR 2

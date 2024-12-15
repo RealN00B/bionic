@@ -100,7 +100,7 @@ static void RunTest(void (*test_fn)(struct sockaddr_un*, int),
 
 TEST(sys_socket, accept4_error) {
   ASSERT_EQ(-1, accept4(-1, nullptr, nullptr, 0));
-  ASSERT_EQ(EBADF, errno);
+  ASSERT_ERRNO(EBADF);
 }
 
 static void TestAccept4(struct sockaddr_un* addr, int fd) {
@@ -109,7 +109,7 @@ static void TestAccept4(struct sockaddr_un* addr, int fd) {
   ASSERT_NE(fd_acc, -1) << strerror(errno);
 
   // Check that SOCK_CLOEXEC was set properly.
-  AssertCloseOnExec(fd_acc, true);
+  ASSERT_TRUE(CloseOnExec(fd_acc));
 
   close(fd_acc);
 }
@@ -174,8 +174,11 @@ TEST(sys_socket, recvmmsg_smoke) {
 }
 
 TEST(sys_socket, recvmmsg_error) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
   ASSERT_EQ(-1, recvmmsg(-1, nullptr, 0, 0, nullptr));
-  ASSERT_EQ(EBADF, errno);
+  ASSERT_ERRNO(EBADF);
+#pragma clang diagnostic pop
 }
 
 const char* g_SendMsgs[] = {
@@ -232,6 +235,9 @@ TEST(sys_socket, sendmmsg_smoke) {
 }
 
 TEST(sys_socket, sendmmsg_error) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
   ASSERT_EQ(-1, sendmmsg(-1, nullptr, 0, 0));
-  ASSERT_EQ(EBADF, errno);
+  ASSERT_ERRNO(EBADF);
+#pragma clang diagnostic pop
 }

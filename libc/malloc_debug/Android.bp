@@ -2,6 +2,17 @@
 // libc_malloc_debug_backtrace.a
 // ==============================================================
 // Used by libmemunreachable
+package {
+    default_team: "trendy_team_native_tools_libraries",
+    // See: http://go/android-license-faq
+    // A large-scale-change added 'default_applicable_licenses' to import
+    // all of the 'license_kinds' from "bionic_libc_license"
+    // to get the below license kinds:
+    //   SPDX-license-identifier-Apache-2.0
+    //   SPDX-license-identifier-BSD
+    default_applicable_licenses: ["bionic_libc_license"],
+}
+
 cc_library_static {
     name: "libc_malloc_debug_backtrace",
     vendor_available: true,
@@ -27,12 +38,6 @@ cc_library_static {
     },
     native_coverage: false,
 
-    target: {
-        android: {
-            static_libs: ["libc++demangle"],
-        },
-    },
-
     // -Wno-error=format-zero-length needed for gcc to compile.
     cflags: [
         "-Wall",
@@ -57,9 +62,11 @@ cc_library {
         "DebugData.cpp",
         "debug_disable.cpp",
         "GuardData.cpp",
+        "LogAllocatorStats.cpp",
         "malloc_debug.cpp",
         "PointerData.cpp",
         "RecordData.cpp",
+        "Unreachable.cpp",
         "UnwindBacktrace.cpp",
     ],
 
@@ -69,6 +76,7 @@ cc_library {
         "libasync_safe",
         "libbase",
         "libc_malloc_debug_backtrace",
+        "libmemunreachable",
     ],
 
     shared_libs: [
@@ -115,6 +123,8 @@ cc_library {
 // ==============================================================
 cc_test {
     name: "malloc_debug_unit_tests",
+    test_suites: ["device-tests"],
+    isolated: true,
 
     srcs: [
         "tests/backtrace_fake.cpp",
@@ -161,11 +171,17 @@ cc_test {
 
     include_dirs: [
         "bionic/libc",
+        "bionic", // For SKIP_WITH_HWASAN.
     ],
 
     header_libs: [
         "bionic_libc_platform_headers",
     ],
+
+    // The clang-analyzer-unix.Malloc and other warnings in these
+    // unit tests are either false positive or in
+    // negative tests that can be ignored.
+    tidy: false,
 
     srcs: [
         "tests/malloc_debug_system_tests.cpp",
@@ -183,4 +199,5 @@ cc_test {
         "-O0",
     ],
     test_suites: ["general-tests"],
+    test_config: "tests/AndroidTest.xml",
 }

@@ -46,8 +46,6 @@
 // 0      sigflag/cookie  setjmp cookie in top 31 bits, signal mask flag in low bit
 // 1      sigmask         signal mask (not used with _setjmp / _longjmp)
 // 2      core_base       base of core registers (x18-x30, sp)
-//                        (We only store the low bits of x18 to avoid leaking the
-//                        shadow call stack address into memory.)
 // 16     float_base      base of float registers (d8-d15)
 // 24     checksum        checksum of core registers
 // 25     reserved        reserved entries (room to grow)
@@ -68,12 +66,7 @@
 #define _JB_D8_D9       (_JB_D10_D11 + 2)
 #define _JB_CHECKSUM    (_JB_D8_D9 + 2)
 
-#define SCS_MASK (SCS_SIZE - 1)
-#define MANGLE_REGISTERS 1
-#define USE_CHECKSUM 1
-
 .macro m_mangle_registers reg, sp_reg
-#if MANGLE_REGISTERS
   eor x3, x3, \reg
   eor x19, x19, \reg
   eor x20, x20, \reg
@@ -88,7 +81,6 @@
   eor x29, x29, \reg
   eor x30, x30, \reg
   eor \sp_reg, \sp_reg, \reg
-#endif
 .endm
 
 .macro m_calculate_checksum dst, src, scratch
@@ -103,21 +95,20 @@
   m_mangle_registers \reg, sp_reg=\sp_reg
 .endm
 
-ENTRY(setjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(setjmp)
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(setjmp)
   mov w1, #1
   b sigsetjmp
 END(setjmp)
 
-ENTRY(_setjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(_setjmp)
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(_setjmp)
   mov w1, #0
   b sigsetjmp
 END(_setjmp)
 
 // int sigsetjmp(sigjmp_buf env, int save_signal_mask);
-ENTRY(sigsetjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(sigsetjmp)
+  paciasp
+  .cfi_negate_ra_state
   stp x0, x30, [sp, #-16]!
   .cfi_def_cfa_offset 16
   .cfi_rel_offset x0, 0
@@ -157,6 +148,9 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
   bic x1, x1, #1
 
   // Mask off the high bits of the shadow call stack pointer.
+  // We only store the low bits of x18 to avoid leaking the
+  // shadow call stack address into memory.
+  // See the SCS commentary in pthread_internal.h for more detail.
   and x3, x18, #SCS_MASK
 
   // Save core registers.
@@ -177,29 +171,25 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
   stp d10, d11, [x0, #(_JB_D10_D11 * 8)]
   stp d8,  d9,  [x0, #(_JB_D8_D9   * 8)]
 
-#if USE_CHECKSUM
   // Calculate the checksum.
   m_calculate_checksum x12, x0, x2
   str x12, [x0, #(_JB_CHECKSUM * 8)]
-#endif
 
   mov w0, #0
+  autiasp
+  .cfi_negate_ra_state
   ret
 END(sigsetjmp)
 
 // void siglongjmp(sigjmp_buf env, int value);
-ENTRY(siglongjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
-#if USE_CHECKSUM
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(siglongjmp)
   // Check the checksum before doing anything.
   m_calculate_checksum x12, x0, x2
   ldr x2, [x0, #(_JB_CHECKSUM * 8)]
-
   cmp x2, x12
   bne __bionic_setjmp_checksum_mismatch
-#endif
 
-#if __has_feature(hwaddress_sanitizer)
+  // Update stack memory tags (MTE + hwasan).
   stp x0, x30, [sp, #-16]!
   .cfi_adjust_cfa_offset 16
   .cfi_rel_offset x0, 0
@@ -211,7 +201,8 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
   bic x2, x2, #1
   ldr x0, [x0, #(_JB_X30_SP  * 8 + 8)]
   eor x0, x0, x2
-  bl __hwasan_handle_longjmp
+  add x1, sp, #16
+  bl memtag_handle_longjmp
 
   mov x1, x19 // Restore 'value'.
   // Restore original x0 and lr.
@@ -219,7 +210,6 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
   .cfi_adjust_cfa_offset -16
   .cfi_restore x0
   .cfi_restore x30
-#endif
 
   // Do we need to restore the signal mask?
   ldr x2, [x0, #(_JB_SIGFLAG * 8)]
@@ -250,7 +240,9 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
 1:
   // Restore core registers.
   bic x2, x2, #1
+  // x30 was saved with PAC to jmp_buf in sigsetjmp().
   ldp x30, x10, [x0, #(_JB_X30_SP  * 8)]
+  .cfi_negate_ra_state
   ldp x28, x29, [x0, #(_JB_X28_X29 * 8)]
   ldp x26, x27, [x0, #(_JB_X26_X27 * 8)]
   ldp x24, x25, [x0, #(_JB_X24_X25 * 8)]
@@ -290,10 +282,12 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
   // Set return value.
   cmp w1, wzr
   csinc w0, w1, wzr, ne
+  autiasp
+  .cfi_negate_ra_state
   ret
 END(siglongjmp)
 
-ALIAS_SYMBOL(longjmp, siglongjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(longjmp)
-ALIAS_SYMBOL(_longjmp, siglongjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(_longjmp)
+ALIAS_SYMBOL_WEAK_FOR_NATIVE_BRIDGE(longjmp, siglongjmp)
+ALIAS_SYMBOL_WEAK_FOR_NATIVE_BRIDGE(_longjmp, siglongjmp)
+
+NOTE_GNU_PROPERTY()

@@ -18,6 +18,8 @@
 
 #include <search.h>
 
+#include "utils.h"
+
 static int int_cmp(const void* lhs, const void* rhs) {
   return *reinterpret_cast<const int*>(rhs) - *reinterpret_cast<const int*>(lhs);
 }
@@ -112,6 +114,11 @@ TEST(search, tfind_tsearch_twalk_tdestroy) {
   g_free_calls = 0;
   tdestroy(root, node_free);
   ASSERT_EQ(3U, g_free_calls);
+}
+
+TEST(search, tdestroy_null) {
+  // It's okay to pass a null node, and your callback will not be called.
+  tdestroy(nullptr, nullptr);
 }
 
 struct pod_node {
@@ -271,7 +278,7 @@ TEST(search, hcreate_r_hsearch_r_hdestroy_r) {
   // Check missing.
   errno = 0;
   ASSERT_EQ(0, hsearch_r(ENTRY{.key = const_cast<char*>("b"), .data = nullptr}, FIND, &e, &h1));
-  ASSERT_EQ(ESRCH, errno);
+  ASSERT_ERRNO(ESRCH);
 
   // Check present.
   ASSERT_EQ(1, hsearch_r(ENTRY{.key = const_cast<char*>("a"), .data = nullptr}, FIND, &e, &h1));
@@ -284,4 +291,27 @@ TEST(search, hcreate_r_hsearch_r_hdestroy_r) {
   ASSERT_EQ(1, hsearch_r(ENTRY{.key = const_cast<char*>("a"), .data = nullptr}, FIND, &e, &h2));
   AssertEntry(e, "a", "B");
   hdestroy_r(&h2);
+}
+
+TEST(search, hsearch_resizing) {
+  ASSERT_NE(0, hcreate(1));
+
+  std::vector<char*> entries;
+  // Add enough entries to ensure that we've had to resize.
+  for (char ch = ' '; ch <= '~'; ++ch) {
+    char* p;
+    asprintf(&p, "%c", ch);
+    ENTRY e;
+    e.data = e.key = p;
+    ASSERT_TRUE(hsearch(e, ENTER) != nullptr);
+    entries.push_back(p);
+  }
+
+  // Check they're all there.
+  for (auto& p : entries) {
+    ENTRY* e = hsearch(ENTRY{.key = p, .data = nullptr}, FIND);
+    AssertEntry(e, p, p);
+  }
+
+  for (auto& p : entries) free(p);
 }

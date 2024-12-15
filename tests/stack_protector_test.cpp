@@ -19,7 +19,6 @@
  */
 
 #include <gtest/gtest.h>
-#include "BionicDeathTest.h"
 
 #include <pthread.h>
 #include <stdint.h>
@@ -27,6 +26,9 @@
 #include <unistd.h>
 #include <set>
 
+#include <android-base/silent_death_test.h>
+
+#include "platform/bionic/mte.h"
 #include "private/bionic_tls.h"
 
 extern "C" pid_t gettid(); // glibc defines this but doesn't declare it anywhere.
@@ -46,7 +48,7 @@ struct stack_protector_checker {
     printf("[thread %d] TLS stack guard = %p\n", tid, guard);
 
     // Duplicate tid. gettid(2) bug? Seeing this would be very upsetting.
-    ASSERT_TRUE(tids.find(tid) == tids.end());
+    ASSERT_FALSE(tids.contains(tid));
 
     // Uninitialized guard. Our bug. Note this is potentially flaky; we _could_
     // get four random zero bytes, but it should be vanishingly unlikely.
@@ -99,16 +101,44 @@ TEST(stack_protector, global_guard) {
 #endif
 }
 
-class stack_protector_DeathTest : public BionicDeathTest {};
+// Make sure that a stack variable (`*p`) is tagged under MTE, by forcing the
+// stack safety analysis to fail.
+int z;
+__attribute__((noinline)) void escape_stack_safety_analysis(int* p) {
+  *p = z;
+}
+
+bool stack_mte_enabled() {
+  if (!mte_supported()) return false;
+  int stack_variable;
+  escape_stack_safety_analysis(&stack_variable);
+#if defined(__aarch64__)
+  return reinterpret_cast<uintptr_t>(&stack_variable) & (0xfull << 56);
+#else   // !defined(__aarch64__)
+  return false;
+#endif  // defined(__aarch64__)
+}
+
+bool hwasan_enabled() {
+#if __has_feature(hwaddress_sanitizer)
+  return true;
+#else
+  return false;
+#endif  // __has_feature(hwaddress_sanitizer)
+}
+
+using stack_protector_DeathTest = SilentDeathTest;
 
 TEST_F(stack_protector_DeathTest, modify_stack_protector) {
   // In another file to prevent inlining, which removes stack protection.
   extern void modify_stack_protector_test();
-#if __has_feature(hwaddress_sanitizer)
-  ASSERT_EXIT(modify_stack_protector_test(),
-              testing::KilledBySignal(SIGABRT), "tag-mismatch");
-#else
-  ASSERT_EXIT(modify_stack_protector_test(),
-              testing::KilledBySignal(SIGABRT), "stack corruption detected");
-#endif
+
+  if (stack_mte_enabled()) {
+    GTEST_SKIP() << "Stack MTE is enabled, stack protector is not available";
+  } else if (hwasan_enabled()) {
+    GTEST_SKIP() << "HWASan is enabled, stack protector is not testable";
+  } else {
+    ASSERT_EXIT(modify_stack_protector_test(), testing::KilledBySignal(SIGABRT),
+                "stack corruption detected");
+  }
 }

@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI_NF_CONNTRACK_COMMON_H
 #define _UAPI_NF_CONNTRACK_COMMON_H
 enum ip_conntrack_info {
@@ -64,8 +52,10 @@ enum ip_conntrack_status {
   IPS_HELPER = (1 << IPS_HELPER_BIT),
   IPS_OFFLOAD_BIT = 14,
   IPS_OFFLOAD = (1 << IPS_OFFLOAD_BIT),
-  IPS_UNCHANGEABLE_MASK = (IPS_NAT_DONE_MASK | IPS_NAT_MASK | IPS_EXPECTED | IPS_CONFIRMED | IPS_DYING | IPS_SEQ_ADJUST | IPS_TEMPLATE | IPS_OFFLOAD),
-  __IPS_MAX_BIT = 15,
+  IPS_HW_OFFLOAD_BIT = 15,
+  IPS_HW_OFFLOAD = (1 << IPS_HW_OFFLOAD_BIT),
+  IPS_UNCHANGEABLE_MASK = (IPS_NAT_DONE_MASK | IPS_NAT_MASK | IPS_EXPECTED | IPS_CONFIRMED | IPS_DYING | IPS_SEQ_ADJUST | IPS_TEMPLATE | IPS_UNTRACKED | IPS_OFFLOAD | IPS_HW_OFFLOAD),
+  __IPS_MAX_BIT = 16,
 };
 enum ip_conntrack_events {
   IPCT_NEW,

@@ -41,6 +41,8 @@
 // Generated android_ids array
 #include "generated_android_ids.h"
 
+#include "utils.h"
+
 using android::base::Join;
 using android::base::ReadFileToString;
 using android::base::Split;
@@ -75,14 +77,18 @@ static void check_passwd(const passwd* pwd, const char* username, uid_t uid, uid
     EXPECT_STREQ("/", pwd->pw_dir);
   }
 
-  EXPECT_STREQ("/bin/sh", pwd->pw_shell);
+  // This has changed over time and that causes new GSI + old vendor images testing to fail.
+  // This parameter doesn't matter on Android, so simply ignore its value for older vendor images.
+  if (android::base::GetIntProperty("ro.product.first_api_level", 0) >= 30) {
+    EXPECT_STREQ("/bin/sh", pwd->pw_shell);
+  }
 }
 
 static void check_getpwuid(const char* username, uid_t uid, uid_type_t uid_type,
                            bool check_username) {
   errno = 0;
   passwd* pwd = getpwuid(uid);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
   SCOPED_TRACE("getpwuid");
   check_passwd(pwd, username, uid, uid_type, check_username);
 }
@@ -91,7 +97,7 @@ static void check_getpwnam(const char* username, uid_t uid, uid_type_t uid_type,
                            bool check_username) {
   errno = 0;
   passwd* pwd = getpwnam(username);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
   SCOPED_TRACE("getpwnam");
   check_passwd(pwd, username, uid, uid_type, check_username);
 }
@@ -106,7 +112,7 @@ static void check_getpwuid_r(const char* username, uid_t uid, uid_type_t uid_typ
   passwd* pwd = nullptr;
   result = getpwuid_r(uid, &pwd_storage, buf, sizeof(buf), &pwd);
   ASSERT_EQ(0, result);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
   SCOPED_TRACE("getpwuid_r");
   check_passwd(pwd, username, uid, uid_type, check_username);
 }
@@ -121,7 +127,7 @@ static void check_getpwnam_r(const char* username, uid_t uid, uid_type_t uid_typ
   passwd* pwd = nullptr;
   result = getpwnam_r(username, &pwd_storage, buf, sizeof(buf), &pwd);
   ASSERT_EQ(0, result);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
   SCOPED_TRACE("getpwnam_r");
   check_passwd(pwd, username, uid, uid_type, check_username);
 }
@@ -141,7 +147,7 @@ static void expect_no_passwd_id(uid_t uid) {
   passwd* passwd = nullptr;
   passwd = getpwuid(uid);
   EXPECT_EQ(nullptr, passwd) << "name = '" << passwd->pw_name << "'";
-  EXPECT_EQ(ENOENT, errno);
+  EXPECT_ERRNO(ENOENT);
 
   struct passwd passwd_storage;
   char buf[512];
@@ -155,7 +161,7 @@ static void expect_no_passwd_name(const char* username) {
   passwd* passwd = nullptr;
   passwd = getpwnam(username);
   EXPECT_EQ(nullptr, passwd) << "name = '" << passwd->pw_name << "'";
-  EXPECT_EQ(ENOENT, errno);
+  EXPECT_ERRNO(ENOENT);
 
   struct passwd passwd_storage;
   char buf[512];
@@ -405,8 +411,8 @@ static void expect_ids(T ids, bool is_group) {
   }
   expect_range(AID_ISOLATED_START, AID_ISOLATED_END);
 
-  // TODO(73062966): We still don't have a good way to create vendor AIDs in the system or other
-  // non-vendor partitions, therefore we keep this check disabled.
+  // Prior to R, we didn't have a mechanism to create vendor AIDs in the system or other non-vendor
+  // partitions, therefore we disabled the rest of these checks for older API levels.
   if (android::base::GetIntProperty("ro.product.first_api_level", 0) <= 29) {
     return;
   }
@@ -437,6 +443,44 @@ static void expect_ids(T ids, bool is_group) {
     }
     return result;
   };
+
+  // AID_UPROBESTATS (1093) was added in API level 35, but "trunk stable" means
+  // that the 2024Q* builds are tested with the _previous_ release's CTS.
+  if (android::base::GetIntProperty("ro.build.version.sdk", 0) == 34) {
+#if !defined(AID_UPROBESTATS)
+#define AID_UPROBESTATS 1093
+#endif
+    ids.erase(AID_UPROBESTATS);
+    expected_ids.erase(AID_UPROBESTATS);
+    if (getpwuid(AID_UPROBESTATS)) {
+      EXPECT_STREQ(getpwuid(AID_UPROBESTATS)->pw_name, "uprobestats");
+    }
+  }
+  // AID_VIRTUALMACHINE (3013) was added in API level 35, but "trunk stable" means
+  // that the 2024Q* builds are tested with the _previous_ release's CTS.
+  if (android::base::GetIntProperty("ro.build.version.sdk", 0) == 34) {
+#if !defined(AID_VIRTUALMACHINE)
+#define AID_VIRTUALMACHINE 3013
+#endif
+    ids.erase(AID_VIRTUALMACHINE);
+    expected_ids.erase(AID_VIRTUALMACHINE);
+    if (getpwuid(AID_VIRTUALMACHINE)) {
+      EXPECT_STREQ(getpwuid(AID_VIRTUALMACHINE)->pw_name, "virtualmachine");
+    }
+  }
+  // AID_CROS_EC (1094) was added in API level 36, but "trunk stable" means
+  // that the 2024Q* builds are tested with the _previous_ release's CTS.
+  if (android::base::GetIntProperty("ro.build.version.sdk", 0) == 35) {
+#if !defined(AID_CROS_EC)
+#define AID_CROS_EC 1094
+#endif
+    ids.erase(AID_CROS_EC);
+    expected_ids.erase(AID_CROS_EC);
+    if (getpwuid(AID_CROS_EC)) {
+      EXPECT_STREQ(getpwuid(AID_CROS_EC)->pw_name, "cros_ec");
+    }
+  }
+
   EXPECT_EQ(expected_ids, ids) << return_differences();
 }
 #endif
@@ -462,14 +506,7 @@ TEST(pwd, getpwent_iterate) {
       EXPECT_STREQ("/data", pwd->pw_dir) << "pwd->pw_uid: " << pwd->pw_uid;
     }
 
-    // TODO(b/27999086): fix this check with the OEM range
-    // If OEMs add their own AIDs to private/android_filesystem_config.h, this check will fail.
-    // Long term we want to create a better solution for OEMs adding AIDs, but we're not there
-    // yet, so therefore we do not check for uid's in the OEM range.
-    if (!(pwd->pw_uid >= 2900 && pwd->pw_uid <= 2999) &&
-        !(pwd->pw_uid >= 5000 && pwd->pw_uid <= 5999)) {
-      EXPECT_EQ(0U, uids.count(pwd->pw_uid)) << "pwd->pw_uid: " << pwd->pw_uid;
-    }
+    EXPECT_EQ(0U, uids.count(pwd->pw_uid)) << "pwd->pw_uid: " << pwd->pw_uid;
     uids.emplace(pwd->pw_uid);
   }
   endpwent();
@@ -499,7 +536,7 @@ static void check_group(const group* grp, const char* group_name, gid_t gid,
 static void check_getgrgid(const char* group_name, gid_t gid, bool check_groupname) {
   errno = 0;
   group* grp = getgrgid(gid);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
   SCOPED_TRACE("getgrgid");
   check_group(grp, group_name, gid, check_groupname);
 }
@@ -507,7 +544,7 @@ static void check_getgrgid(const char* group_name, gid_t gid, bool check_groupna
 static void check_getgrnam(const char* group_name, gid_t gid, bool check_groupname) {
   errno = 0;
   group* grp = getgrnam(group_name);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
   SCOPED_TRACE("getgrnam");
   check_group(grp, group_name, gid, check_groupname);
 }
@@ -520,7 +557,7 @@ static void check_getgrgid_r(const char* group_name, gid_t gid, bool check_group
   errno = 0;
   int result = getgrgid_r(gid, &grp_storage, buf, sizeof(buf), &grp);
   ASSERT_EQ(0, result);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
   SCOPED_TRACE("getgrgid_r");
   check_group(grp, group_name, gid, check_groupname);
 }
@@ -533,7 +570,7 @@ static void check_getgrnam_r(const char* group_name, gid_t gid, bool check_group
   errno = 0;
   int result = getgrnam_r(group_name, &grp_storage, buf, sizeof(buf), &grp);
   ASSERT_EQ(0, result);
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
   SCOPED_TRACE("getgrnam_r");
   check_group(grp, group_name, gid, check_groupname);
 }
@@ -552,7 +589,7 @@ static void expect_no_group_id(gid_t gid) {
   group* group = nullptr;
   group = getgrgid(gid);
   EXPECT_EQ(nullptr, group) << "name = '" << group->gr_name << "'";
-  EXPECT_EQ(ENOENT, errno);
+  EXPECT_ERRNO(ENOENT);
 
   struct group group_storage;
   char buf[512];
@@ -566,7 +603,7 @@ static void expect_no_group_name(const char* groupname) {
   group* group = nullptr;
   group = getgrnam(groupname);
   EXPECT_EQ(nullptr, group) << "name = '" << group->gr_name << "'";
-  EXPECT_EQ(ENOENT, errno);
+  EXPECT_ERRNO(ENOENT);
 
   struct group group_storage;
   char buf[512];
@@ -812,14 +849,7 @@ TEST(grp, getgrent_iterate) {
     EXPECT_STREQ(grp->gr_name, grp->gr_mem[0]) << "grp->gr_gid: " << grp->gr_gid;
     EXPECT_TRUE(grp->gr_mem[1] == nullptr) << "grp->gr_gid: " << grp->gr_gid;
 
-    // TODO(b/27999086): fix this check with the OEM range
-    // If OEMs add their own AIDs to private/android_filesystem_config.h, this check will fail.
-    // Long term we want to create a better solution for OEMs adding AIDs, but we're not there
-    // yet, so therefore we do not check for gid's in the OEM range.
-    if (!(grp->gr_gid >= 2900 && grp->gr_gid <= 2999) &&
-        !(grp->gr_gid >= 5000 && grp->gr_gid <= 5999)) {
-      EXPECT_EQ(0U, gids.count(grp->gr_gid)) << "grp->gr_gid: " << grp->gr_gid;
-    }
+    EXPECT_EQ(0U, gids.count(grp->gr_gid)) << "grp->gr_gid: " << grp->gr_gid;
     gids.emplace(grp->gr_gid);
   }
   endgrent();
@@ -828,6 +858,29 @@ TEST(grp, getgrent_iterate) {
 #else
   GTEST_SKIP() << "bionic-only test";
 #endif
+}
+
+TEST(grp, getgrouplist) {
+#if defined(__BIONIC__)
+  // Query the number of groups.
+  int ngroups = 0;
+  ASSERT_EQ(-1, getgrouplist("root", 123, nullptr, &ngroups));
+  ASSERT_EQ(1, ngroups);
+
+  // Query the specific groups (just the one you pass in on Android).
+  ngroups = 8;
+  gid_t groups[ngroups];
+  ASSERT_EQ(1, getgrouplist("root", 123, groups, &ngroups));
+  ASSERT_EQ(1, ngroups);
+  ASSERT_EQ(123u, groups[0]);
+#else
+  GTEST_SKIP() << "bionic-only test (groups too unpredictable)";
+#endif
+}
+
+TEST(grp, initgroups) {
+  if (getuid() != 0) GTEST_SKIP() << "test requires root";
+  ASSERT_EQ(0, initgroups("root", 0));
 }
 
 #if defined(__BIONIC__)

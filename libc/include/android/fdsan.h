@@ -123,6 +123,12 @@ enum android_fdsan_owner_type {
 
   /* libziparchive's ZipArchive */
   ANDROID_FDSAN_OWNER_TYPE_ZIPARCHIVE = 12,
+
+  /* native_handle_t */
+  ANDROID_FDSAN_OWNER_TYPE_NATIVE_HANDLE = 13,
+
+  /* android::Parcel */
+  ANDROID_FDSAN_OWNER_TYPE_PARCEL = 14,
 };
 
 /*
@@ -156,7 +162,7 @@ uint64_t android_fdsan_get_owner_tag(int fd) __INTRODUCED_IN(29);
  *
  * The return value points to memory with static lifetime, do not attempt to modify it.
  */
-const char* android_fdsan_get_tag_type(uint64_t tag) __INTRODUCED_IN(29);
+const char* _Nonnull android_fdsan_get_tag_type(uint64_t tag) __INTRODUCED_IN(29);
 
 /*
  * Get an owner tag's value, with the type masked off.
@@ -186,7 +192,8 @@ enum android_fdsan_error_level android_fdsan_get_error_level() __INTRODUCED_IN(2
  * Set the error level and return the previous state.
  *
  * Error checking is automatically disabled in the child of a fork, to maintain
- * compatibility with code that forks, blindly closes FDs, and then execs.
+ * compatibility with code that forks, closes all file descriptors, and then
+ * execs.
  *
  * In cases such as the zygote, where the child has no intention of calling
  * exec, call this function to reenable fdsan checks.

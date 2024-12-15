@@ -65,11 +65,11 @@ in the 64-bit ABI even though they're identical to the non-`64` names.
 
 ## `sigset_t` is too small for real-time signals
 
-On 32-bit Android, `sigset_t` is too small for ARM and x86 (but correct for
-MIPS). This means that there is no support for real-time signals in 32-bit
-code. Android P (API level 28) adds `sigset64_t` and a corresponding function
-for every function that takes a `sigset_t` (so `sigprocmask64` takes a
-`sigset64_t` where `sigprocmask` takes a `sigset_t`).
+On 32-bit Android, `sigset_t` is too small for ARM and x86. This means that
+there is no support for real-time signals in 32-bit code. Android P (API
+level 28) adds `sigset64_t` and a corresponding function for every function
+that takes a `sigset_t` (so `sigprocmask64` takes a `sigset64_t` where
+`sigprocmask` takes a `sigset_t`).
 
 On 32-bit Android, `struct sigaction` is also too small because it contains
 a `sigset_t`. We also offer a `struct sigaction64` and `sigaction64` function
@@ -81,13 +81,23 @@ For source compatibility, the names containing `64` are also available
 in the 64-bit ABI even though they're identical to the non-`64` names.
 
 
-## `time_t` is 32-bit
+## `time_t` is 32-bit on LP32 (y2038)
 
-On 32-bit Android, `time_t` is 32-bit. The header `<time64.h>` and type
-`time64_t` exist as a workaround, but the kernel interfaces exposed on 32-bit
-Android all use the 32-bit `time_t`.
+On 32-bit Android, `time_t` is 32-bit, which will overflow in 2038.
 
-In the 64-bit ABI, `time_t` is 64-bit.
+In the 64-bit ABI, `time_t` is 64-bit, which will not overflow until
+long after the death of the star around which we currently circle.
+
+The header `<time64.h>` and type `time64_t` exist as a workaround,
+but the kernel interfaces exposed on 32-bit Android all use the 32-bit
+`time_t` and `struct timespec`/`struct timeval`. Linux 5.x kernels
+do offer extra interfaces so that 32-bit processes can pass 64-bit
+times to/from the kernel, but we do not plan on adding support for
+these to the C library. Convenient use of the new calls would require
+an equivalent to `_FILE_OFFSET_BITS=64`, which we wouldn't be able
+to globally flip for reasons similar to `_FILE_OFFSET_BITS`, mentioned
+above. All apps are already required to offer 64-bit variants, and we
+expect 64-bit-only devices within the next few years.
 
 
 ## `pthread_mutex_t` is too small for large pids
@@ -99,3 +109,15 @@ but 32-bit bionic's `pthread_mutex` is a total of 32 bits, leaving just
 mutexes for tids that don't fit in 16 bits. This typically manifests as
 a hang in `pthread_mutex_lock` if the libc startup code doesn't detect
 this condition and abort.
+
+
+## `getuid()` and friends wrongly set errno for very large results
+
+This doesn't generally affect Android devices, because we don't have any
+uids/gids/pids large enough, but 32-bit Android doesn't take into account
+that functions like getuid() potentially have return values that cover the
+entire 32-bit, and can't fail. This means that the usual "if the result is
+between -1 and -4096, set errno and return -1" code is inappropriate for
+these functions. Since LP32 is unlikely to be still supported long before
+those limits could ever matter, although -- unlike the others in this
+document -- this defect is actually fixable, it doesn't seem worth fixing.

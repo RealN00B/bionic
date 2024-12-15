@@ -50,15 +50,15 @@
 
 #include <async_safe/log.h>
 
-#include "local.h"
 #include "glue.h"
+#include "local.h"
+#include "private/ErrnoRestorer.h"
+#include "private/FdPath.h"
 #include "private/__bionic_get_shell_path.h"
 #include "private/bionic_fortify.h"
-#include "private/ErrnoRestorer.h"
 #include "private/thread_private.h"
 
-#define ALIGNBYTES (sizeof(uintptr_t) - 1)
-#define ALIGN(p) (((uintptr_t)(p) + ALIGNBYTES) &~ ALIGNBYTES)
+#include "private/bsd_sys_param.h" // For ALIGN/ALIGNBYTES.
 
 #define	NDYNAMIC 10		/* add ten more whenever necessary */
 
@@ -197,7 +197,7 @@ found:
 	fp->_lb._size = 0;
 
 	memset(_EXT(fp), 0, sizeof(struct __sfileext));
-	_FLOCK(fp) = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+	_EXT(fp)->_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 	_EXT(fp)->_caller_handles_locking = false;
 
 	// Caller sets cookie, _read/_write etc.
@@ -226,25 +226,21 @@ extern "C" __LIBC_HIDDEN__ void __libc_stdio_cleanup(void) {
   _fwalk(__sflush);
 }
 
-static FILE* __fopen(int fd, int flags) {
+static FILE* __FILE_init(FILE* fp, int fd, int flags) {
+  if (fp == nullptr) return nullptr;
+
 #if !defined(__LP64__)
-  if (fd > SHRT_MAX) {
-    errno = EMFILE;
-    return nullptr;
-  }
+  if (fd > SHRT_MAX) __fortify_fatal("stdio: fd %d > SHRT_MAX", fd);
 #endif
 
-  FILE* fp = __sfp();
-  if (fp != nullptr) {
-    fp->_file = fd;
-    android_fdsan_exchange_owner_tag(fd, 0, __get_file_tag(fp));
-    fp->_flags = flags;
-    fp->_cookie = fp;
-    fp->_read = __sread;
-    fp->_write = __swrite;
-    fp->_close = __sclose;
-    _EXT(fp)->_seek64 = __sseek64;
-  }
+  fp->_file = fd;
+  android_fdsan_exchange_owner_tag(fd, 0, __get_file_tag(fp));
+  fp->_flags = flags;
+  fp->_cookie = fp;
+  fp->_read = __sread;
+  fp->_write = __swrite;
+  fp->_close = __sclose;
+  _EXT(fp)->_seek64 = __sseek64;
   return fp;
 }
 
@@ -258,14 +254,15 @@ FILE* fopen(const char* file, const char* mode) {
     return nullptr;
   }
 
-  FILE* fp = __fopen(fd, flags);
+  FILE* fp = __FILE_init(__sfp(), fd, flags);
   if (fp == nullptr) {
     ErrnoRestorer errno_restorer;
     close(fd);
     return nullptr;
   }
 
-  // For append mode, even though we use O_APPEND, we need to seek to the end now.
+  // For append mode, O_APPEND sets the write position for free, but we need to
+  // set the read position manually.
   if ((mode_flags & O_APPEND) != 0) __sseek64(fp, 0, SEEK_END);
   return fp;
 }
@@ -296,15 +293,26 @@ FILE* fdopen(int fd, const char* mode) {
     fcntl(fd, F_SETFD, tmp | FD_CLOEXEC);
   }
 
-  return __fopen(fd, flags);
+  return __FILE_init(__sfp(), fd, flags);
 }
 
-// Re-direct an existing, open (probably) file to some other file.
-// ANSI is written such that the original file gets closed if at
-// all possible, no matter what.
-// TODO: rewrite this mess completely.
 FILE* freopen(const char* file, const char* mode, FILE* fp) {
   CHECK_FP(fp);
+
+  // POSIX says: "If pathname is a null pointer, the freopen() function shall
+  // attempt to change the mode of the stream to that specified by mode, as if
+  // the name of the file currently associated with the stream had been used. In
+  // this case, the file descriptor associated with the stream need not be
+  // closed if the call to freopen() succeeds. It is implementation-defined
+  // which changes of mode are permitted (if any), and under what
+  // circumstances."
+  //
+  // Linux is quite restrictive about what changes you can make with F_SETFL,
+  // and in particular won't let you touch the access bits. It's easiest and
+  // most effective to just rely on /proc/self/fd/...
+  FdPath fd_path(fp->_file);
+  if (file == nullptr) file = fd_path.c_str();
+
   int mode_flags;
   int flags = __sflags(mode, &mode_flags);
   if (flags == 0) {
@@ -313,6 +321,8 @@ FILE* freopen(const char* file, const char* mode, FILE* fp) {
   }
 
   ScopedFileLock sfl(fp);
+
+  // TODO: rewrite this mess completely.
 
   // There are actually programs that depend on being able to "freopen"
   // descriptors that weren't originally open.  Keep this from breaking.
@@ -383,24 +393,12 @@ FILE* freopen(const char* file, const char* mode, FILE* fp) {
     }
   }
 
-  // _file is only a short.
-  if (fd > SHRT_MAX) {
-      fp->_flags = 0; // Release.
-      errno = EMFILE;
-      return nullptr;
-  }
+  __FILE_init(fp, fd, flags);
 
-  fp->_flags = flags;
-  fp->_file = fd;
-  android_fdsan_exchange_owner_tag(fd, 0, __get_file_tag(fp));
-  fp->_cookie = fp;
-  fp->_read = __sread;
-  fp->_write = __swrite;
-  fp->_close = __sclose;
-  _EXT(fp)->_seek64 = __sseek64;
-
-  // For append mode, even though we use O_APPEND, we need to seek to the end now.
+  // For append mode, O_APPEND sets the write position for free, but we need to
+  // set the read position manually.
   if ((mode_flags & O_APPEND) != 0) __sseek64(fp, 0, SEEK_END);
+
   return fp;
 }
 __strong_alias(freopen64, freopen);
@@ -773,12 +771,9 @@ char* fgets(char* buf, int n, FILE* fp) {
 // Returns first argument, or nullptr if no characters were read.
 // Does not return nullptr if n == 1.
 char* fgets_unlocked(char* buf, int n, FILE* fp) {
-  if (n <= 0) {
-    errno = EINVAL;
-    return nullptr;
-  }
+  if (n <= 0) __fortify_fatal("fgets: buffer size %d <= 0", n);
 
-  _SET_ORIENTATION(fp, -1);
+  _SET_ORIENTATION(fp, ORIENT_BYTES);
 
   char* s = buf;
   n--; // Leave space for NUL.
@@ -889,7 +884,7 @@ wint_t getwchar() {
 
 void perror(const char* msg) {
   if (msg == nullptr) msg = "";
-  fprintf(stderr, "%s%s%s\n", msg, (*msg == '\0') ? "" : ": ", strerror(errno));
+  fprintf(stderr, "%s%s%m\n", msg, (*msg == '\0') ? "" : ": ");
 }
 
 int printf(const char* fmt, ...) {
@@ -908,7 +903,7 @@ int putc_unlocked(int c, FILE* fp) {
     errno = EBADF;
     return EOF;
   }
-  _SET_ORIENTATION(fp, -1);
+  _SET_ORIENTATION(fp, ORIENT_BYTES);
   if (--fp->_w >= 0 || (fp->_w >= fp->_lbfsize && c != '\n')) {
     return (*fp->_p++ = c);
   }
@@ -1026,9 +1021,9 @@ int vsnprintf(char* s, size_t n, const char* fmt, va_list ap) {
   __check_count("vsnprintf", "size", n);
 
   // Stdio internals do not deal correctly with zero length buffer.
-  char dummy;
+  char one_byte_buffer[1];
   if (n == 0) {
-    s = &dummy;
+    s = one_byte_buffer;
     n = 1;
   }
 
@@ -1084,6 +1079,26 @@ int fflush_unlocked(FILE* fp) {
   return __sflush(fp);
 }
 
+int fpurge(FILE* fp) {
+  CHECK_FP(fp);
+
+  ScopedFileLock sfl(fp);
+
+  if (fp->_flags == 0) {
+    // Already freed!
+    errno = EBADF;
+    return EOF;
+  }
+
+  if (HASUB(fp)) FREEUB(fp);
+  WCIO_FREE(fp);
+  fp->_p = fp->_bf._base;
+  fp->_r = 0;
+  fp->_w = fp->_flags & (__SLBF | __SNBF) ? 0 : fp->_bf._size;
+  return 0;
+}
+__strong_alias(__fpurge, fpurge);
+
 size_t fread(void* buf, size_t size, size_t count, FILE* fp) {
   CHECK_FP(fp);
   ScopedFileLock sfl(fp);
@@ -1103,7 +1118,7 @@ size_t fread_unlocked(void* buf, size_t size, size_t count, FILE* fp) {
   size_t total = desired_total;
   if (total == 0) return 0;
 
-  _SET_ORIENTATION(fp, -1);
+  _SET_ORIENTATION(fp, ORIENT_BYTES);
 
   // TODO: how can this ever happen?!
   if (fp->_r < 0) fp->_r = 0;
@@ -1134,7 +1149,9 @@ size_t fread_unlocked(void* buf, size_t size, size_t count, FILE* fp) {
 
   // Read directly into the caller's buffer.
   while (total > 0) {
-    ssize_t bytes_read = (*fp->_read)(fp->_cookie, dst, total);
+    // The _read function pointer takes an int instead of a size_t.
+    int chunk_size = MIN(total, INT_MAX);
+    ssize_t bytes_read = (*fp->_read)(fp->_cookie, dst, chunk_size);
     if (bytes_read <= 0) {
       fp->_flags |= (bytes_read == 0) ? __SEOF : __SERR;
       break;
@@ -1168,7 +1185,7 @@ size_t fwrite_unlocked(const void* buf, size_t size, size_t count, FILE* fp) {
   __siov iov = { .iov_base = const_cast<void*>(buf), .iov_len = n };
   __suio uio = { .uio_iov = &iov, .uio_iovcnt = 1, .uio_resid = n };
 
-  _SET_ORIENTATION(fp, -1);
+  _SET_ORIENTATION(fp, ORIENT_BYTES);
 
   // The usual case is success (__sfvwrite returns 0); skip the divide if this happens,
   // since divides are generally slow.
@@ -1224,7 +1241,7 @@ FILE* popen(const char* cmd, const char* mode) {
     if (dup2(fds[child], desired_child_fd) == -1) _exit(127);
     close(fds[child]);
     if (bidirectional) dup2(STDOUT_FILENO, STDIN_FILENO);
-    execl(__bionic_get_shell_path(), "sh", "-c", cmd, nullptr);
+    execl(__bionic_get_shell_path(), "sh", "-c", "--", cmd, nullptr);
     _exit(127);
   }
 
@@ -1240,6 +1257,23 @@ FILE* popen(const char* cmd, const char* mode) {
 int pclose(FILE* fp) {
   CHECK_FP(fp);
   return __FILE_close(fp);
+}
+
+void flockfile(FILE* fp) {
+  CHECK_FP(fp);
+  pthread_mutex_lock(&_EXT(fp)->_lock);
+}
+
+int ftrylockfile(FILE* fp) {
+  CHECK_FP(fp);
+  // The specification for ftrylockfile() says it returns 0 on success,
+  // or non-zero on error. We don't bother canonicalizing to 0/-1...
+  return pthread_mutex_trylock(&_EXT(fp)->_lock);
+}
+
+void funlockfile(FILE* fp) {
+  CHECK_FP(fp);
+  pthread_mutex_unlock(&_EXT(fp)->_lock);
 }
 
 namespace {

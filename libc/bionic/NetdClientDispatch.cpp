@@ -18,18 +18,14 @@
 
 #include <sys/socket.h>
 
-#ifdef __i386__
-#define __socketcall __attribute__((__cdecl__))
-#else
-#define __socketcall
-#endif
+#include "private/bionic_fdtrack.h"
 
-extern "C" __socketcall int __accept4(int, sockaddr*, socklen_t*, int);
-extern "C" __socketcall int __connect(int, const sockaddr*, socklen_t);
-extern "C" __socketcall int __sendmmsg(int, const mmsghdr*, unsigned int, int);
-extern "C" __socketcall ssize_t __sendmsg(int, const msghdr*, unsigned int);
-extern "C" __socketcall int __sendto(int, const void*, size_t, int, const sockaddr*, socklen_t);
-extern "C" __socketcall int __socket(int, int, int);
+extern "C" int __accept4(int, sockaddr*, socklen_t*, int);
+extern "C" int __connect(int, const sockaddr*, socklen_t);
+extern "C" int __sendmmsg(int, const mmsghdr*, unsigned int, int);
+extern "C" ssize_t __sendmsg(int, const msghdr*, unsigned int);
+extern "C" int __sendto(int, const void*, size_t, int, const sockaddr*, socklen_t);
+extern "C" int __socket(int, int, int);
 
 static unsigned fallBackNetIdForResolv(unsigned netId) {
     return netId;
@@ -53,7 +49,7 @@ __LIBC_HIDDEN__ NetdClientDispatch __netdClientDispatch __attribute__((aligned(3
 };
 
 int accept4(int fd, sockaddr* addr, socklen_t* addr_length, int flags) {
-    return __netdClientDispatch.accept4(fd, addr, addr_length, flags);
+  return FDTRACK_CREATE(__netdClientDispatch.accept4(fd, addr, addr_length, flags));
 }
 
 int connect(int fd, const sockaddr* addr, socklen_t addr_length) {
@@ -74,5 +70,5 @@ ssize_t sendto(int fd, const void* buf, size_t n, int flags,
 }
 
 int socket(int domain, int type, int protocol) {
-    return __netdClientDispatch.socket(domain, type, protocol);
+  return FDTRACK_CREATE(__netdClientDispatch.socket(domain, type, protocol));
 }

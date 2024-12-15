@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef RDMA_USER_IOCTL_CMDS_H
 #define RDMA_USER_IOCTL_CMDS_H
 #include <linux/types.h>
@@ -50,27 +38,6 @@ struct ib_uverbs_ioctl_hdr {
   __aligned_u64 reserved1;
   __u32 driver_id;
   __u32 reserved2;
-  struct ib_uverbs_attr attrs[0];
-};
-enum rdma_driver_id {
-  RDMA_DRIVER_UNKNOWN,
-  RDMA_DRIVER_MLX5,
-  RDMA_DRIVER_MLX4,
-  RDMA_DRIVER_CXGB3,
-  RDMA_DRIVER_CXGB4,
-  RDMA_DRIVER_MTHCA,
-  RDMA_DRIVER_BNXT_RE,
-  RDMA_DRIVER_OCRDMA,
-  RDMA_DRIVER_NES,
-  RDMA_DRIVER_I40IW,
-  RDMA_DRIVER_VMW_PVRDMA,
-  RDMA_DRIVER_QEDR,
-  RDMA_DRIVER_HNS,
-  RDMA_DRIVER_USNIC,
-  RDMA_DRIVER_RXE,
-  RDMA_DRIVER_HFI1,
-  RDMA_DRIVER_QIB,
-  RDMA_DRIVER_EFA,
-  RDMA_DRIVER_SIW,
+  struct ib_uverbs_attr attrs[];
 };
 #endif

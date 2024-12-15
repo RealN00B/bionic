@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef __LINUX_UAPI_SND_ASOC_H
 #define __LINUX_UAPI_SND_ASOC_H
 #include <linux/types.h>
@@ -113,10 +101,14 @@
 #define SND_SOC_TPLG_LNK_FLGBIT_SYMMETRIC_CHANNELS (1 << 1)
 #define SND_SOC_TPLG_LNK_FLGBIT_SYMMETRIC_SAMPLEBITS (1 << 2)
 #define SND_SOC_TPLG_LNK_FLGBIT_VOICE_WAKEUP (1 << 3)
-#define SND_SOC_TPLG_BCLK_CM 0
-#define SND_SOC_TPLG_BCLK_CS 1
-#define SND_SOC_TPLG_FSYNC_CM 0
-#define SND_SOC_TPLG_FSYNC_CS 1
+#define SND_SOC_TPLG_BCLK_CP 0
+#define SND_SOC_TPLG_BCLK_CC 1
+#define SND_SOC_TPLG_BCLK_CM SND_SOC_TPLG_BCLK_CP
+#define SND_SOC_TPLG_BCLK_CS SND_SOC_TPLG_BCLK_CC
+#define SND_SOC_TPLG_FSYNC_CP 0
+#define SND_SOC_TPLG_FSYNC_CC 1
+#define SND_SOC_TPLG_FSYNC_CM SND_SOC_TPLG_FSYNC_CP
+#define SND_SOC_TPLG_FSYNC_CS SND_SOC_TPLG_FSYNC_CC
 struct snd_soc_tplg_hdr {
   __le32 magic;
   __le32 abi;
@@ -145,16 +137,16 @@ struct snd_soc_tplg_vendor_array {
   __le32 type;
   __le32 num_elems;
   union {
-    struct snd_soc_tplg_vendor_uuid_elem uuid[0];
-    struct snd_soc_tplg_vendor_value_elem value[0];
-    struct snd_soc_tplg_vendor_string_elem string[0];
+    __DECLARE_FLEX_ARRAY(struct snd_soc_tplg_vendor_uuid_elem, uuid);
+    __DECLARE_FLEX_ARRAY(struct snd_soc_tplg_vendor_value_elem, value);
+    __DECLARE_FLEX_ARRAY(struct snd_soc_tplg_vendor_string_elem, string);
   };
 } __attribute__((packed));
 struct snd_soc_tplg_private {
   __le32 size;
   union {
-    char data[0];
-    struct snd_soc_tplg_vendor_array array[0];
+    __DECLARE_FLEX_ARRAY(char, data);
+    __DECLARE_FLEX_ARRAY(struct snd_soc_tplg_vendor_array, array);
   };
 } __attribute__((packed));
 struct snd_soc_tplg_tlv_dbscale {
@@ -222,8 +214,8 @@ struct snd_soc_tplg_hw_config {
   __u8 clock_gated;
   __u8 invert_bclk;
   __u8 invert_fsync;
-  __u8 bclk_master;
-  __u8 fsync_master;
+  __u8 bclk_provider;
+  __u8 fsync_provider;
   __u8 mclk_direction;
   __le16 reserved;
   __le32 mclk_rate;
@@ -344,48 +336,4 @@ struct snd_soc_tplg_dai {
   __le32 flags;
   struct snd_soc_tplg_private priv;
 } __attribute__((packed));
-struct snd_soc_tplg_manifest_v4 {
-  __le32 size;
-  __le32 control_elems;
-  __le32 widget_elems;
-  __le32 graph_elems;
-  __le32 pcm_elems;
-  __le32 dai_link_elems;
-  struct snd_soc_tplg_private priv;
-} __packed;
-struct snd_soc_tplg_stream_caps_v4 {
-  __le32 size;
-  char name[SNDRV_CTL_ELEM_ID_NAME_MAXLEN];
-  __le64 formats;
-  __le32 rates;
-  __le32 rate_min;
-  __le32 rate_max;
-  __le32 channels_min;
-  __le32 channels_max;
-  __le32 periods_min;
-  __le32 periods_max;
-  __le32 period_size_min;
-  __le32 period_size_max;
-  __le32 buffer_size_min;
-  __le32 buffer_size_max;
-} __packed;
-struct snd_soc_tplg_pcm_v4 {
-  __le32 size;
-  char pcm_name[SNDRV_CTL_ELEM_ID_NAME_MAXLEN];
-  char dai_name[SNDRV_CTL_ELEM_ID_NAME_MAXLEN];
-  __le32 pcm_id;
-  __le32 dai_id;
-  __le32 playback;
-  __le32 capture;
-  __le32 compress;
-  struct snd_soc_tplg_stream stream[SND_SOC_TPLG_STREAM_CONFIG_MAX];
-  __le32 num_streams;
-  struct snd_soc_tplg_stream_caps_v4 caps[2];
-} __packed;
-struct snd_soc_tplg_link_config_v4 {
-  __le32 size;
-  __le32 id;
-  struct snd_soc_tplg_stream stream[SND_SOC_TPLG_STREAM_CONFIG_MAX];
-  __le32 num_streams;
-} __packed;
 #endif

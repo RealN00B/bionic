@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _LINUX__HFI1_USER_H
 #define _LINUX__HFI1_USER_H
 #include <linux/types.h>
@@ -42,6 +30,7 @@
 #define HFI1_CAP_OPFN (1UL << 16)
 #define HFI1_CAP_SDMA_HEAD_CHECK (1UL << 17)
 #define HFI1_CAP_EARLY_CREDIT_RETURN (1UL << 18)
+#define HFI1_CAP_AIP (1UL << 19)
 #define HFI1_RCVHDR_ENTSIZE_2 (1UL << 0)
 #define HFI1_RCVHDR_ENTSIZE_16 (1UL << 1)
 #define HFI1_RCVDHR_ENTSIZE_32 (1UL << 2)
@@ -79,7 +68,7 @@ struct hfi1_sdma_comp_entry {
 struct hfi1_status {
   __aligned_u64 dev;
   __aligned_u64 port;
-  char freezemsg[0];
+  char freezemsg[];
 };
 enum sdma_req_opcode {
   EXPECTED = 0,

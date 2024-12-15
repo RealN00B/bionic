@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef __VMW_PVRDMA_ABI_H__
 #define __VMW_PVRDMA_ABI_H__
 #include <linux/types.h>
@@ -98,6 +86,12 @@ enum pvrdma_wc_flags {
   PVRDMA_WC_WITH_NETWORK_HDR_TYPE = 1 << 6,
   PVRDMA_WC_FLAGS_MAX = PVRDMA_WC_WITH_NETWORK_HDR_TYPE,
 };
+enum pvrdma_network_type {
+  PVRDMA_NETWORK_IB,
+  PVRDMA_NETWORK_ROCE_V1 = PVRDMA_NETWORK_IB,
+  PVRDMA_NETWORK_IPV4,
+  PVRDMA_NETWORK_IPV6
+};
 struct pvrdma_alloc_ucontext_resp {
   __u32 qp_tab_size;
   __u32 reserved;
@@ -135,6 +129,10 @@ struct pvrdma_create_qp {
   __u32 rbuf_size;
   __u32 sbuf_size;
   __aligned_u64 qp_addr;
+};
+struct pvrdma_create_qp_resp {
+  __u32 qpn;
+  __u32 qp_handle;
 };
 struct pvrdma_ex_cmp_swap {
   __aligned_u64 swap_val;

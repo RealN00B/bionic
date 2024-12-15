@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include <string>
+#include <vector>
 
 #include <android-base/file.h>
 
@@ -27,8 +28,7 @@ using namespace std::literals;
 
 #if defined(__BIONIC__)
 
-#define _REALLY_INCLUDE_SYS__SYSTEM_PROPERTIES_H_
-#include <sys/_system_properties.h>
+#include <sys/system_properties.h>
 
 #include <benchmark/benchmark.h>
 #include <system_properties/system_properties.h>
@@ -39,9 +39,10 @@ struct LocalPropertyTestState {
       : nprops(nprops), valid(false), system_properties_(false) {
     static const char prop_name_chars[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-_.";
 
-    valid = system_properties_.AreaInit(dir_.path, nullptr);
+    valid = system_properties_.AreaInit(dir_.path, nullptr, true);
     if (!valid) {
-      return;
+      printf("Failed to initialize properties, terminating...\n");
+      exit(1);
     }
 
     names = new char* [nprops];
@@ -99,6 +100,9 @@ struct LocalPropertyTestState {
     }
 
     system_properties_.contexts_->FreeAndUnmap();
+    if (system_properties_.appcompat_override_contexts_) {
+      system_properties_.appcompat_override_contexts_->FreeAndUnmap();
+    }
 
     for (int i = 0; i < nprops; i++) {
       delete names[i];
@@ -191,5 +195,31 @@ static void BM_property_serial(benchmark::State& state) {
   delete[] pinfo;
 }
 BIONIC_BENCHMARK_WITH_ARG(BM_property_serial, "NUM_PROPS");
+
+// This benchmarks find the actual properties currently set on the system and accessible by the
+// user that runs this benchmark (aka this is best run as root).  It is not comparable between
+// devices, nor even boots, but is useful to understand the the real end-to-end speed, including
+// costs to find the correct property file within /dev/__properties__.
+static void BM_property_find_real(benchmark::State& state) {
+  std::vector<std::string> properties;
+  __system_property_foreach(
+      [](const prop_info* pi, void* cookie) {
+        __system_property_read_callback(pi,
+                                        [](void* cookie, const char* name, const char*, unsigned) {
+                                          auto properties =
+                                              reinterpret_cast<std::vector<std::string>*>(cookie);
+                                          properties->emplace_back(name);
+                                        },
+                                        cookie);
+      },
+      &properties);
+
+  while (state.KeepRunning()) {
+    for (const auto& property : properties) {
+      __system_property_find(property.c_str());
+    }
+  }
+}
+BIONIC_BENCHMARK(BM_property_find_real);
 
 #endif  // __BIONIC__

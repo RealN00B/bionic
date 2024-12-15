@@ -51,14 +51,32 @@
 
 __BEGIN_DECLS
 
-#ifdef __LP64__
+#if defined(__LP64__)
+
 /* LP64 kernels don't have F_*64 defines because their flock is 64-bit. */
+
 /** Flag for flock(). */
 #define F_GETLK64  F_GETLK
 /** Flag for flock(). */
 #define F_SETLK64  F_SETLK
 /** Flag for flock(). */
 #define F_SETLKW64 F_SETLKW
+
+#elif defined(__USE_FILE_OFFSET64)
+
+/* For _FILE_OFFSET_BITS=64, redirect the constants to the off64_t variants. */
+
+#undef F_GETLK
+#undef F_SETLK
+#undef F_SETLKW
+
+/** Flag for flock(). */
+#define F_GETLK F_GETLK64
+/** Flag for flock(). */
+#define F_SETLK F_SETLK64
+/** Flag for flock(). */
+#define F_SETLKW F_SETLKW64
+
 #endif
 
 /** Flag for open(). */
@@ -66,7 +84,6 @@ __BEGIN_DECLS
 /** Flag for open(). */
 #define O_RSYNC O_SYNC
 
-#if __ANDROID_API__ >= 21
 /** Flag for splice(). */
 #define SPLICE_F_MOVE 1
 /** Flag for splice(). */
@@ -75,52 +92,49 @@ __BEGIN_DECLS
 #define SPLICE_F_MORE 4
 /** Flag for splice(). */
 #define SPLICE_F_GIFT 8
-#endif
 
-#if __ANDROID_API__ >= 26
 /** Flag for sync_file_range(). */
 #define SYNC_FILE_RANGE_WAIT_BEFORE 1
 /** Flag for sync_file_range(). */
 #define SYNC_FILE_RANGE_WRITE 2
 /** Flag for sync_file_range(). */
 #define SYNC_FILE_RANGE_WAIT_AFTER 4
-#endif
 
 /**
- * [creat(2)](http://man7.org/linux/man-pages/man2/creat.2.html)
+ * [creat(2)](https://man7.org/linux/man-pages/man2/creat.2.html)
  * creates a file.
  *
  * Returns a new file descriptor on success and returns -1 and sets `errno` on
  * failure.
  */
-int creat(const char* __path, mode_t __mode);
+int creat(const char* _Nonnull __path, mode_t __mode);
 /** See creat(). */
-int creat64(const char* __path, mode_t __mode) __INTRODUCED_IN(21);
+int creat64(const char* _Nonnull __path, mode_t __mode);
 
 /**
- * [openat(2)](http://man7.org/linux/man-pages/man2/openat.2.html)
+ * [openat(2)](https://man7.org/linux/man-pages/man2/openat.2.html)
  * opens (and possibly creates) a file.
  *
  * Returns a new file descriptor on success and returns -1 and sets `errno` on
  * failure.
  */
-int openat(int __dir_fd, const char* __path, int __flags, ...);
+int openat(int __dir_fd, const char* _Nonnull __path, int __flags, ...);
 /** See openat(). */
-int openat64(int __dir_fd, const char* __path, int __flags, ...) __INTRODUCED_IN(21);
+int openat64(int __dir_fd, const char* _Nonnull __path, int __flags, ...);
 
 /**
- * [open(2)](http://man7.org/linux/man-pages/man2/open.2.html)
+ * [open(2)](https://man7.org/linux/man-pages/man2/open.2.html)
  * opens (and possibly creates) a file.
  *
  * Returns a new file descriptor on success and returns -1 and sets `errno` on
  * failure.
  */
-int open(const char* __path, int __flags, ...);
+int open(const char* _Nonnull __path, int __flags, ...);
 /** See open(). */
-int open64(const char* __path, int __flags, ...) __INTRODUCED_IN(21);
+int open64(const char* _Nonnull __path, int __flags, ...);
 
 /**
- * [splice(2)](http://man7.org/linux/man-pages/man2/splice.2.html)
+ * [splice(2)](https://man7.org/linux/man-pages/man2/splice.2.html)
  * splices data to/from a pipe.
  *
  * Valid flags are `SPLICE_F_MOVE`, `SPLICE_F_NONBLOCK`, `SPLICE_F_MORE`, and
@@ -128,13 +142,11 @@ int open64(const char* __path, int __flags, ...) __INTRODUCED_IN(21);
  *
  * Returns the number of bytes spliced on success and returns -1 and sets
  * `errno` on failure.
- *
- * Available since API level 21.
  */
-ssize_t splice(int __in_fd, off64_t* __in_offset, int __out_fd, off64_t* __out_offset, size_t __length, unsigned int __flags) __INTRODUCED_IN(21);
+ssize_t splice(int __in_fd, off64_t* __BIONIC_COMPLICATED_NULLNESS __in_offset, int __out_fd, off64_t* __BIONIC_COMPLICATED_NULLNESS __out_offset, size_t __length, unsigned int __flags);
 
 /**
- * [tee(2)](http://man7.org/linux/man-pages/man2/tee.2.html)
+ * [tee(2)](https://man7.org/linux/man-pages/man2/tee.2.html)
  * duplicates data from one pipe to another.
  *
  * Valid flags are `SPLICE_F_MOVE`, `SPLICE_F_NONBLOCK`, `SPLICE_F_MORE`, and
@@ -142,13 +154,11 @@ ssize_t splice(int __in_fd, off64_t* __in_offset, int __out_fd, off64_t* __out_o
  *
  * Returns the number of bytes duplicated on success and returns -1 and sets
  * `errno` on failure.
- *
- * Available since API level 21.
  */
-ssize_t tee(int __in_fd, int __out_fd, size_t __length, unsigned int __flags) __INTRODUCED_IN(21);
+ssize_t tee(int __in_fd, int __out_fd, size_t __length, unsigned int __flags);
 
 /**
- * [vmsplice(2)](http://man7.org/linux/man-pages/man2/vmsplice.2.html)
+ * [vmsplice(2)](https://man7.org/linux/man-pages/man2/vmsplice.2.html)
  * splices data to/from a pipe.
  *
  * Valid flags are `SPLICE_F_MOVE`, `SPLICE_F_NONBLOCK`, `SPLICE_F_MORE`, and
@@ -156,13 +166,11 @@ ssize_t tee(int __in_fd, int __out_fd, size_t __length, unsigned int __flags) __
  *
  * Returns the number of bytes spliced on success and returns -1 and sets
  * `errno` on failure.
- *
- * Available since API level 21.
  */
-ssize_t vmsplice(int __fd, const struct iovec* __iov, size_t __count, unsigned int __flags) __INTRODUCED_IN(21);
+ssize_t vmsplice(int __fd, const struct iovec* _Nonnull __iov, size_t __count, unsigned int __flags);
 
 /**
- * [fallocate(2)](http://man7.org/linux/man-pages/man2/fallocate.2.html)
+ * [fallocate(2)](https://man7.org/linux/man-pages/man2/fallocate.2.html)
  * is a Linux-specific extension of posix_fallocate().
  *
  * Valid flags are `FALLOC_FL_KEEP_SIZE`, `FALLOC_FL_PUNCH_HOLE`,
@@ -171,15 +179,13 @@ ssize_t vmsplice(int __fd, const struct iovec* __iov, size_t __count, unsigned i
  * `FALLOC_FL_UNSHARE_RANGE`.
  *
  * Returns 0 on success and returns -1 and sets `errno` on failure.
- *
- * Available since API level 21.
  */
-int fallocate(int __fd, int __mode, off_t __offset, off_t __length) __RENAME_IF_FILE_OFFSET64(fallocate64) __INTRODUCED_IN(21);
+int fallocate(int __fd, int __mode, off_t __offset, off_t __length) __RENAME_IF_FILE_OFFSET64(fallocate64);
 /** See fallocate(). */
-int fallocate64(int __fd, int __mode, off64_t __offset, off64_t __length) __INTRODUCED_IN(21);
+int fallocate64(int __fd, int __mode, off64_t __offset, off64_t __length);
 
 /**
- * [posix_fadvise(2)](http://man7.org/linux/man-pages/man2/posix_fadvise.2.html)
+ * [posix_fadvise(2)](https://man7.org/linux/man-pages/man2/posix_fadvise.2.html)
  * declares an expected access pattern for file data.
  *
  * Valid flags are `POSIX_FADV_NORMAL`, `POSIX_FADV_RANDOM`,
@@ -187,29 +193,25 @@ int fallocate64(int __fd, int __mode, off64_t __offset, off64_t __length) __INTR
  * and `POSIX_FADV_NOREUSE`.
  *
  * Returns 0 on success and returns an error number on failure.
- *
- * Available since API level 21.
  */
-int posix_fadvise(int __fd, off_t __offset, off_t __length, int __advice) __RENAME_IF_FILE_OFFSET64(posix_fadvise64) __INTRODUCED_IN(21);
+int posix_fadvise(int __fd, off_t __offset, off_t __length, int __advice) __RENAME_IF_FILE_OFFSET64(posix_fadvise64);
 /** See posix_fadvise(). */
-int posix_fadvise64(int __fd, off64_t __offset, off64_t __length, int __advice) __INTRODUCED_IN(21);
+int posix_fadvise64(int __fd, off64_t __offset, off64_t __length, int __advice);
 
 /**
- * [posix_fallocate(2)](http://man7.org/linux/man-pages/man2/posix_fallocate.2.html)
+ * [posix_fallocate(2)](https://man7.org/linux/man-pages/man2/posix_fallocate.2.html)
  * allocates file space.
  *
  * Returns 0 on success and returns an error number on failure.
- *
- * Available since API level 21.
  */
-int posix_fallocate(int __fd, off_t __offset, off_t __length) __RENAME_IF_FILE_OFFSET64(posix_fallocate64) __INTRODUCED_IN(21);
+int posix_fallocate(int __fd, off_t __offset, off_t __length) __RENAME_IF_FILE_OFFSET64(posix_fallocate64);
 /** See posix_fallocate(). */
-int posix_fallocate64(int __fd, off64_t __offset, off64_t __length) __INTRODUCED_IN(21);
+int posix_fallocate64(int __fd, off64_t __offset, off64_t __length);
 
 #if defined(__USE_GNU)
 
 /**
- * [readahead(2)](http://man7.org/linux/man-pages/man2/readahead.2.html)
+ * [readahead(2)](https://man7.org/linux/man-pages/man2/readahead.2.html)
  * initiates readahead for the given file.
  *
  * Returns 0 on success and returns -1 and sets `errno` on failure.
@@ -217,7 +219,7 @@ int posix_fallocate64(int __fd, off64_t __offset, off64_t __length) __INTRODUCED
 ssize_t readahead(int __fd, off64_t __offset, size_t __length);
 
 /**
- * [sync_file_range(2)](http://man7.org/linux/man-pages/man2/sync_file_range.2.html)
+ * [sync_file_range(2)](https://man7.org/linux/man-pages/man2/sync_file_range.2.html)
  * syncs part of a file with disk.
  *
  * Valid flags are `SYNC_FILE_RANGE_WAIT_BEFORE`, `SYNC_FILE_RANGE_WRITE`, and

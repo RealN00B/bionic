@@ -1,4 +1,3 @@
-/* From: @(#)e_hypot.c 1.3 95/01/18 */
 /*
  * ====================================================
  * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
@@ -9,9 +8,6 @@
  * is preserved.
  * ====================================================
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/e_hypotl.c 336362 2018-07-17 07:42:14Z bde $");
 
 /* long double version of hypot().  See e_hypot.c for most comments. */
 
@@ -82,7 +78,7 @@ hypotl(long double x, long double y)
 	        man_t manh, manl;
 		GET_LDBL_MAN(manh,manl,b);
 		if((manh|manl)==0) return a;
-		t1=0;
+		t1=1;
 		SET_HIGH_WORD(t1,ESW(MAX_EXP-2));	/* t1=2^(MAX_EXP-2) */
 		b *= t1;
 		a *= t1;

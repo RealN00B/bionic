@@ -1,4 +1,3 @@
-/* @(#)s_expm1.c 5.1 93/09/24 */
 /*
  * ====================================================
  * Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
@@ -9,9 +8,6 @@
  * is preserved.
  * ====================================================
  */
-
-#include <sys/cdefs.h>
-__FBSDID("$FreeBSD: head/lib/msun/src/s_expm1.c 352710 2019-09-25 18:50:57Z dim $");
 
 /* expm1(x)
  * Returns exp(x)-1, the exponential of x minus 1.

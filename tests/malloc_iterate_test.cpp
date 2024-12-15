@@ -26,6 +26,7 @@
 
 #include <vector>
 
+#include <android-base/test_utils.h>
 #include <async_safe/log.h>
 #include <procinfo/process_map.h>
 
@@ -95,8 +96,10 @@ static void VerifyPtrs(TestDataType* test_data) {
   test_data->total_allocated_bytes = 0;
 
   // Find all of the maps that are from the native allocator.
-  auto callback = [&](uint64_t start, uint64_t end, uint16_t, uint64_t, ino_t, const char* name) {
-    if (strcmp(name, "[anon:libc_malloc]") == 0 || strncmp(name, "[anon:scudo:", 12) == 0) {
+  auto callback = [&](uint64_t start, uint64_t end, uint16_t, uint64_t, ino_t, const char* name,
+                      bool) {
+    if (strcmp(name, "[anon:libc_malloc]") == 0 || strncmp(name, "[anon:scudo:", 12) == 0 ||
+        strncmp(name, "[anon:GWP-ASan", 14) == 0) {
       malloc_iterate(start, end - start, SavePointers, test_data);
     }
   };
@@ -191,8 +194,10 @@ TEST(malloc_iterate, invalid_pointers) {
   TestDataType test_data = {};
 
   // Only attempt to get memory data for maps that are not from the native allocator.
-  auto callback = [&](uint64_t start, uint64_t end, uint16_t, uint64_t, ino_t, const char* name) {
-    if (strcmp(name, "[anon:libc_malloc]") != 0 && strncmp(name, "[anon:scudo:", 12) != 0) {
+  auto callback = [&](uint64_t start, uint64_t end, uint16_t, uint64_t, ino_t, const char* name,
+                      bool) {
+    if (strcmp(name, "[anon:libc_malloc]") != 0 && strncmp(name, "[anon:scudo:", 12) != 0 &&
+        strncmp(name, "[anon:GWP-ASan", 14) != 0) {
       size_t total = test_data.total_allocated_bytes;
       malloc_iterate(start, end - start, SavePointers, &test_data);
       total = test_data.total_allocated_bytes - total;
