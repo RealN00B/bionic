@@ -18,40 +18,37 @@
 
 #include "fpmath.h"
 
-double fabs(double x) {
-#if __arm__
-  // Both Clang and GCC insist on moving r0/r1 into a double register
-  // and using fabs where bit-twiddling would be a better choice.
-  // They get fabsf right, but we need to be careful in fabsl too.
-  IEEEd2bits u;
-  u.d = x;
-  u.bits.sign = 0;
-  return u.d;
+#if defined(__arm__) && (__ARM_ARCH <= 7)
+// armv7 arm32 has no instructions to implement these builtins,
+// so we include the msun source in the .bp file instead.
 #else
-  return __builtin_fabs(x);
-#endif
-}
-
-float fabsf(float x) {
-  return __builtin_fabsf(x);
-}
-
-#if defined(__LP64__)
-long double fabsl(long double x) { return __builtin_fabsl(x); }
-#else
-long double fabsl(long double x) {
-  // Don't use __builtin_fabs here because of ARM. (See fabs above.)
-  return fabs(x);
-}
-#endif
-
-#if defined(__aarch64__)
-float ceilf(float x) { return __builtin_ceilf(x); }
 double ceil(double x) { return __builtin_ceil(x); }
+float ceilf(float x) { return __builtin_ceilf(x); }
+#if defined(__ILP32__)
+__weak_reference(ceil, ceill);
+#endif
+#endif
 
-float floorf(float x) { return __builtin_floorf(x); }
+double copysign(double x, double y) { return __builtin_copysign(x, y); }
+float copysignf(float x, float y) { return __builtin_copysignf(x, y); }
+long double copysignl(long double x, long double y) { return __builtin_copysignl(x, y); }
+
+double fabs(double x) { return __builtin_fabs(x); }
+float fabsf(float x) { return __builtin_fabsf(x); }
+long double fabsl(long double x) { return __builtin_fabsl(x); }
+
+#if defined(__arm__) && (__ARM_ARCH <= 7)
+// armv7 arm32 has no instructions to implement these builtins,
+// so we include the msun source in the .bp file instead.
+#else
 double floor(double x) { return __builtin_floor(x); }
+float floorf(float x) { return __builtin_floorf(x); }
+#if defined(__ILP32__)
+__weak_reference(floor, floorl);
+#endif
+#endif
 
+#if defined(__aarch64__) || defined(__riscv)
 float fmaf(float x, float y, float z) { return __builtin_fmaf(x, y, z); }
 double fma(double x, double y, double z) { return __builtin_fma(x, y, z); }
 
@@ -60,13 +57,51 @@ double fmax(double x, double y) { return __builtin_fmax(x, y); }
 
 float fminf(float x, float y) { return __builtin_fminf(x, y); }
 double fmin(double x, double y) { return __builtin_fmin(x, y); }
+#endif
 
-float rintf(float x) { return __builtin_rintf(x); }
+#if defined(__aarch64__) || defined(__riscv) || defined(__i386__) || defined(__x86_64__)
+long lrint(double x) { return __builtin_lrint(x); }
+long lrintf(float x) { return __builtin_lrintf(x); }
+long long llrint(double x) { return __builtin_llrint(x); }
+long long llrintf(float x) { return __builtin_llrintf(x); }
+#endif
+
+#if defined(__aarch64__) || defined(__riscv)
+long lround(double x) { return __builtin_lround(x); }
+long lroundf(float x) { return __builtin_lroundf(x); }
+long long llround(double x) { return __builtin_llround(x); }
+long long llroundf(float x) { return __builtin_llroundf(x); }
+#endif
+
+#if defined(__arm__) && (__ARM_ARCH <= 7)
+// armv7 arm32 has no instructions to implement these builtins,
+// so we include the msun source in the .bp file instead.
+#else
 double rint(double x) { return __builtin_rint(x); }
+float rintf(float x) { return __builtin_rintf(x); }
+#if defined(__ILP32__)
+__weak_reference(rint, rintl);
+#endif
+#endif
 
-float roundf(float x) { return __builtin_roundf(x); }
+#if defined(__aarch64__) || defined(__riscv)
 double round(double x) { return __builtin_round(x); }
+float roundf(float x) { return __builtin_roundf(x); }
+#endif
 
-float truncf(float x) { return __builtin_truncf(x); }
+double sqrt(double x) { return __builtin_sqrt(x); }
+float sqrtf(float x) { return __builtin_sqrtf(x); }
+#if defined(__ILP32__)
+__weak_reference(sqrt, sqrtl);
+#endif
+
+#if defined(__arm__) && (__ARM_ARCH <= 7)
+// armv7 arm32 has no instructions to implement these builtins,
+// so we include the msun source in the .bp file instead.
+#else
 double trunc(double x) { return __builtin_trunc(x); }
+float truncf(float x) { return __builtin_truncf(x); }
+#if defined(__ILP32__)
+__weak_reference(trunc, truncl);
+#endif
 #endif

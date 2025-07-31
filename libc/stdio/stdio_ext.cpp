@@ -59,12 +59,14 @@ int __flbf(FILE* fp) {
   return (fp->_flags & __SLBF) != 0;
 }
 
-void __fpurge(FILE* fp) {
-  fpurge(fp);
-}
-
 size_t __fpending(FILE* fp) {
   return fp->_p - fp->_bf._base;
+}
+
+size_t __freadahead(FILE* fp) {
+  // Normally _r is the amount of input already available.
+  // When there's ungetc() data, _r counts that and _ur is the previous _r.
+  return fp->_r + (HASUB(fp) ? fp->_ur : 0);
 }
 
 void _flushlbf() {

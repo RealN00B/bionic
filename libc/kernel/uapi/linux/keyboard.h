@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI__LINUX_KEYBOARD_H
 #define _UAPI__LINUX_KEYBOARD_H
 #include <linux/wait.h>
@@ -35,7 +23,6 @@
 #define MAX_NR_OF_USER_KEYMAPS 256
 #define MAX_NR_FUNC 256
 #define KT_LATIN 0
-#define KT_LETTER 11
 #define KT_FN 1
 #define KT_SPEC 2
 #define KT_PAD 3
@@ -46,6 +33,7 @@
 #define KT_META 8
 #define KT_ASCII 9
 #define KT_LOCK 10
+#define KT_LETTER 11
 #define KT_SLOCK 12
 #define KT_DEAD2 13
 #define KT_BRL 14

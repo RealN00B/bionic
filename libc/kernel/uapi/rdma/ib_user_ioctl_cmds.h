@@ -1,27 +1,13 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef IB_USER_IOCTL_CMDS_H
 #define IB_USER_IOCTL_CMDS_H
 #define UVERBS_ID_NS_MASK 0xF000
 #define UVERBS_ID_NS_SHIFT 12
-#define UVERBS_UDATA_DRIVER_DATA_NS 1
-#define UVERBS_UDATA_DRIVER_DATA_FLAG (1UL << UVERBS_ID_NS_SHIFT)
 enum uverbs_default_objects {
   UVERBS_OBJECT_DEVICE,
   UVERBS_OBJECT_PD,
@@ -42,8 +28,10 @@ enum uverbs_default_objects {
   UVERBS_OBJECT_ASYNC_EVENT,
 };
 enum {
-  UVERBS_ATTR_UHW_IN = UVERBS_UDATA_DRIVER_DATA_FLAG,
+  UVERBS_ID_DRIVER_NS = 1UL << UVERBS_ID_NS_SHIFT,
+  UVERBS_ATTR_UHW_IN = UVERBS_ID_DRIVER_NS,
   UVERBS_ATTR_UHW_OUT,
+  UVERBS_ID_DRIVER_NS_WITH_UHW,
 };
 enum uverbs_methods_device {
   UVERBS_METHOD_INVOKE_WRITE,
@@ -206,6 +194,7 @@ enum uverbs_methods_mr {
   UVERBS_METHOD_MR_DESTROY,
   UVERBS_METHOD_ADVISE_MR,
   UVERBS_METHOD_QUERY_MR,
+  UVERBS_METHOD_REG_DMABUF_MR,
 };
 enum uverbs_attrs_mr_destroy_ids {
   UVERBS_ATTR_DESTROY_MR_HANDLE,
@@ -222,6 +211,17 @@ enum uverbs_attrs_query_mr_cmd_attr_ids {
   UVERBS_ATTR_QUERY_MR_RESP_RKEY,
   UVERBS_ATTR_QUERY_MR_RESP_LENGTH,
   UVERBS_ATTR_QUERY_MR_RESP_IOVA,
+};
+enum uverbs_attrs_reg_dmabuf_mr_cmd_attr_ids {
+  UVERBS_ATTR_REG_DMABUF_MR_HANDLE,
+  UVERBS_ATTR_REG_DMABUF_MR_PD_HANDLE,
+  UVERBS_ATTR_REG_DMABUF_MR_OFFSET,
+  UVERBS_ATTR_REG_DMABUF_MR_LENGTH,
+  UVERBS_ATTR_REG_DMABUF_MR_IOVA,
+  UVERBS_ATTR_REG_DMABUF_MR_FD,
+  UVERBS_ATTR_REG_DMABUF_MR_ACCESS_FLAGS,
+  UVERBS_ATTR_REG_DMABUF_MR_RESP_LKEY,
+  UVERBS_ATTR_REG_DMABUF_MR_RESP_RKEY,
 };
 enum uverbs_attrs_create_counters_cmd_attr_ids {
   UVERBS_ATTR_CREATE_COUNTERS_HANDLE,

@@ -44,7 +44,7 @@ extern "C" int __set_tid_address(int* tid_address);
 // Declared in "private/bionic_ssp.h".
 uintptr_t __stack_chk_guard = 0;
 
-static pthread_internal_t main_thread;
+BIONIC_USED_BEFORE_LINKER_RELOCATES static pthread_internal_t main_thread;
 
 // Setup for the main thread. For dynamic executables, this is called by the
 // linker _before_ libc is mapped in memory. This means that all writes to
@@ -150,7 +150,7 @@ extern "C" void __libc_init_main_thread_final() {
   // stack.)
   ThreadMapping mapping = __allocate_thread_mapping(0, PTHREAD_GUARD_SIZE);
   if (mapping.mmap_base == nullptr) {
-    async_safe_fatal("failed to mmap main thread static TLS: %s", strerror(errno));
+    async_safe_fatal("failed to mmap main thread static TLS: %m");
   }
 
   const StaticTlsLayout& layout = __libc_shared_globals()->static_tls_layout;

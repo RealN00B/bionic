@@ -80,7 +80,7 @@ pthread_mutex_t gGlobalsMutateLock = PTHREAD_MUTEX_INITIALIZER;
 
 _Atomic bool gGlobalsMutating = false;
 
-static bool gZygoteChild = false;
+bool gZygoteChild = false;
 
 // In a Zygote child process, this is set to true if profiling of this process
 // is allowed. Note that this is set at a later time than gZygoteChild. The
@@ -89,7 +89,7 @@ static bool gZygoteChild = false;
 // domains if applicable). These two flags are read by the
 // BIONIC_SIGNAL_PROFILER handler, which does nothing if the process is not
 // profileable.
-static _Atomic bool gZygoteChildProfileable = false;
+_Atomic bool gZygoteChildProfileable = false;
 
 // =============================================================================
 
@@ -370,6 +370,9 @@ static bool InstallHooks(libc_globals* globals, const char* options, const char*
 
 extern "C" const char* __scudo_get_stack_depot_addr();
 extern "C" const char* __scudo_get_region_info_addr();
+extern "C" const char* __scudo_get_ring_buffer_addr();
+extern "C" size_t __scudo_get_ring_buffer_size();
+extern "C" size_t __scudo_get_stack_depot_size();
 
 // Initializes memory allocation framework once per process.
 static void MallocInitImpl(libc_globals* globals) {
@@ -378,9 +381,12 @@ static void MallocInitImpl(libc_globals* globals) {
 
   MaybeInitGwpAsanFromLibc(globals);
 
-#if defined(USE_SCUDO)
+#if defined(USE_SCUDO) && !__has_feature(hwaddress_sanitizer)
   __libc_shared_globals()->scudo_stack_depot = __scudo_get_stack_depot_addr();
   __libc_shared_globals()->scudo_region_info = __scudo_get_region_info_addr();
+  __libc_shared_globals()->scudo_ring_buffer = __scudo_get_ring_buffer_addr();
+  __libc_shared_globals()->scudo_ring_buffer_size = __scudo_get_ring_buffer_size();
+  __libc_shared_globals()->scudo_stack_depot_size = __scudo_get_stack_depot_size();
 #endif
 
   // Prefer malloc debug since it existed first and is a more complete
@@ -462,78 +468,6 @@ extern "C" ssize_t malloc_backtrace(void* pointer, uintptr_t* frames, size_t fra
     return 0;
   }
   return reinterpret_cast<malloc_backtrace_func_t>(func)(pointer, frames, frame_count);
-}
-// =============================================================================
-
-// =============================================================================
-// Platform-internal mallopt variant.
-// =============================================================================
-__BIONIC_WEAK_FOR_NATIVE_BRIDGE
-extern "C" bool android_mallopt(int opcode, void* arg, size_t arg_size) {
-  if (opcode == M_SET_ZYGOTE_CHILD) {
-    if (arg != nullptr || arg_size != 0) {
-      errno = EINVAL;
-      return false;
-    }
-    gZygoteChild = true;
-    return true;
-  }
-  if (opcode == M_INIT_ZYGOTE_CHILD_PROFILING) {
-    if (arg != nullptr || arg_size != 0) {
-      errno = EINVAL;
-      return false;
-    }
-    atomic_store_explicit(&gZygoteChildProfileable, true, memory_order_release);
-    // Also check if heapprofd should start profiling from app startup.
-    HeapprofdInitZygoteChildProfiling();
-    return true;
-  }
-  if (opcode == M_GET_PROCESS_PROFILEABLE) {
-    if (arg == nullptr || arg_size != sizeof(bool)) {
-      errno = EINVAL;
-      return false;
-    }
-    // Native processes are considered profileable. Zygote children are considered
-    // profileable only when appropriately tagged.
-    *reinterpret_cast<bool*>(arg) =
-        !gZygoteChild || atomic_load_explicit(&gZygoteChildProfileable, memory_order_acquire);
-    return true;
-  }
-  if (opcode == M_SET_ALLOCATION_LIMIT_BYTES) {
-    return LimitEnable(arg, arg_size);
-  }
-  if (opcode == M_WRITE_MALLOC_LEAK_INFO_TO_FILE) {
-    if (arg == nullptr || arg_size != sizeof(FILE*)) {
-      errno = EINVAL;
-      return false;
-    }
-    return WriteMallocLeakInfo(reinterpret_cast<FILE*>(arg));
-  }
-  if (opcode == M_GET_MALLOC_LEAK_INFO) {
-    if (arg == nullptr || arg_size != sizeof(android_mallopt_leak_info_t)) {
-      errno = EINVAL;
-      return false;
-    }
-    return GetMallocLeakInfo(reinterpret_cast<android_mallopt_leak_info_t*>(arg));
-  }
-  if (opcode == M_FREE_MALLOC_LEAK_INFO) {
-    if (arg == nullptr || arg_size != sizeof(android_mallopt_leak_info_t)) {
-      errno = EINVAL;
-      return false;
-    }
-    return FreeMallocLeakInfo(reinterpret_cast<android_mallopt_leak_info_t*>(arg));
-  }
-  if (opcode == M_INITIALIZE_GWP_ASAN) {
-    if (arg == nullptr || arg_size != sizeof(bool)) {
-      errno = EINVAL;
-      return false;
-    }
-    __libc_globals.mutate([&](libc_globals* globals) {
-      return MaybeInitGwpAsan(globals, *reinterpret_cast<bool*>(arg));
-    });
-  }
-  // Try heapprofd's mallopt, as it handles options not covered here.
-  return HeapprofdMallopt(opcode, arg, arg_size);
 }
 // =============================================================================
 

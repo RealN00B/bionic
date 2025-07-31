@@ -192,18 +192,12 @@ static int read_spec_entries(char* line_buf, int num_args, ...) {
 }
 
 bool ContextsSplit::MapSerialPropertyArea(bool access_rw, bool* fsetxattr_failed) {
-  char filename[PROP_FILENAME_MAX];
-  int len = async_safe_format_buffer(filename, sizeof(filename), "%s/properties_serial", filename_);
-  if (len < 0 || len >= PROP_FILENAME_MAX) {
-    serial_prop_area_ = nullptr;
-    return false;
-  }
-
+  PropertiesFilename filename(filename_, "properties_serial");
   if (access_rw) {
-    serial_prop_area_ =
-        prop_area::map_prop_area_rw(filename, "u:object_r:properties_serial:s0", fsetxattr_failed);
+    serial_prop_area_ = prop_area::map_prop_area_rw(
+        filename.c_str(), "u:object_r:properties_serial:s0", fsetxattr_failed);
   } else {
-    serial_prop_area_ = prop_area::map_prop_area(filename);
+    serial_prop_area_ = prop_area::map_prop_area(filename.c_str());
   }
   return serial_prop_area_;
 }
@@ -274,9 +268,6 @@ bool ContextsSplit::InitializeProperties() {
     // still need the system / platform properties to function.
     if (access("/vendor/etc/selinux/vendor_property_contexts", R_OK) != -1) {
       InitializePropertiesFromFile("/vendor/etc/selinux/vendor_property_contexts");
-    } else {
-      // Fallback to nonplat_* if vendor_* doesn't exist.
-      InitializePropertiesFromFile("/vendor/etc/selinux/nonplat_property_contexts");
     }
   } else {
     if (!InitializePropertiesFromFile("/plat_property_contexts")) {
@@ -284,16 +275,13 @@ bool ContextsSplit::InitializeProperties() {
     }
     if (access("/vendor_property_contexts", R_OK) != -1) {
       InitializePropertiesFromFile("/vendor_property_contexts");
-    } else {
-      // Fallback to nonplat_* if vendor_* doesn't exist.
-      InitializePropertiesFromFile("/nonplat_property_contexts");
     }
   }
 
   return true;
 }
 
-bool ContextsSplit::Initialize(bool writable, const char* filename, bool* fsetxattr_failed) {
+bool ContextsSplit::Initialize(bool writable, const char* filename, bool* fsetxattr_failed, bool) {
   filename_ = filename;
   if (!InitializeProperties()) {
     return false;

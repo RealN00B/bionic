@@ -110,12 +110,27 @@ extern "C" int mallopt(int param, int value) {
   if (param == M_BIONIC_ZERO_INIT) {
     return SetHeapZeroInitialize(value);
   }
+
   // The rest we pass on...
+  int retval;
   auto dispatch_table = GetDispatchTable();
   if (__predict_false(dispatch_table != nullptr)) {
-    return dispatch_table->mallopt(param, value);
+    retval = dispatch_table->mallopt(param, value);
+  } else {
+    retval = Malloc(mallopt)(param, value);
   }
-  return Malloc(mallopt)(param, value);
+
+  // Track the M_DECAY_TIME mallopt calls.
+  if (param == M_DECAY_TIME && retval == 1) {
+    __libc_globals.mutate([value](libc_globals* globals) {
+      if (value <= 0) {
+        atomic_store(&globals->decay_time_enabled, false);
+      } else {
+        atomic_store(&globals->decay_time_enabled, true);
+      }
+    });
+  }
+  return retval;
 }
 
 extern "C" void* malloc(size_t bytes) {
@@ -313,29 +328,6 @@ extern "C" void __sanitizer_malloc_enable() {
 extern "C" int __sanitizer_malloc_info(int, FILE*) {
   errno = ENOTSUP;
   return -1;
-}
-#endif
-// =============================================================================
-
-// =============================================================================
-// Platform-internal mallopt variant.
-// =============================================================================
-#if defined(LIBC_STATIC)
-extern "C" bool android_mallopt(int opcode, void* arg, size_t arg_size) {
-  if (opcode == M_SET_ALLOCATION_LIMIT_BYTES) {
-    return LimitEnable(arg, arg_size);
-  }
-  if (opcode == M_INITIALIZE_GWP_ASAN) {
-    if (arg == nullptr || arg_size != sizeof(bool)) {
-      errno = EINVAL;
-      return false;
-    }
-    __libc_globals.mutate([&](libc_globals* globals) {
-      return MaybeInitGwpAsan(globals, *reinterpret_cast<bool*>(arg));
-    });
-  }
-  errno = ENOTSUP;
-  return false;
 }
 #endif
 // =============================================================================

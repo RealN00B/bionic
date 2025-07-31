@@ -44,12 +44,16 @@
 #include "linker_soinfo.h"
 #include "private/bionic_globals.h"
 
+#include <platform/bionic/mte.h>
+
 static bool is_tls_reloc(ElfW(Word) type) {
   switch (type) {
     case R_GENERIC_TLS_DTPMOD:
     case R_GENERIC_TLS_DTPREL:
     case R_GENERIC_TLS_TPREL:
+#if defined(R_GENERIC_TLSDESC)
     case R_GENERIC_TLSDESC:
+#endif
       return true;
     default:
       return false;
@@ -145,12 +149,13 @@ void count_relocation(RelocationKind kind) {
 }
 
 void print_linker_stats() {
-  PRINT("RELO STATS: %s: %d abs, %d rel, %d symbol (%d cached)",
-         g_argv[0],
-         linker_stats.count[kRelocAbsolute],
-         linker_stats.count[kRelocRelative],
-         linker_stats.count[kRelocSymbol],
-         linker_stats.count[kRelocSymbolCached]);
+  LD_DEBUG(statistics,
+           "RELO STATS: %s: %d abs, %d rel, %d symbol (%d cached)",
+           g_argv[0],
+           linker_stats.count[kRelocAbsolute],
+           linker_stats.count[kRelocRelative],
+           linker_stats.count[kRelocSymbol],
+           linker_stats.count[kRelocSymbolCached]);
 }
 
 static bool process_relocation_general(Relocator& relocator, const rel_t& reloc);
@@ -160,7 +165,8 @@ __attribute__((always_inline))
 static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
   constexpr bool IsGeneral = Mode == RelocMode::General;
 
-  void* const rel_target = reinterpret_cast<void*>(reloc.r_offset + relocator.si->load_bias);
+  void* const rel_target = reinterpret_cast<void*>(
+      relocator.si->apply_memtag_if_mte_globals(reloc.r_offset + relocator.si->load_bias));
   const uint32_t r_type = ELFW(R_TYPE)(reloc.r_info);
   const uint32_t r_sym = ELFW(R_SYM)(reloc.r_info);
 
@@ -185,9 +191,9 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
   auto protect_segments = [&]() {
     // Make .text executable.
     if (phdr_table_protect_segments(relocator.si->phdr, relocator.si->phnum,
-                                    relocator.si->load_bias) < 0) {
-      DL_ERR("can't protect segments for \"%s\": %s",
-             relocator.si->get_realpath(), strerror(errno));
+                                    relocator.si->load_bias, relocator.si->should_pad_segments(),
+                                    relocator.si->should_use_16kib_app_compat()) < 0) {
+      DL_ERR("can't protect segments for \"%s\": %m", relocator.si->get_realpath());
       return false;
     }
     return true;
@@ -195,29 +201,19 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
   auto unprotect_segments = [&]() {
     // Make .text writable.
     if (phdr_table_unprotect_segments(relocator.si->phdr, relocator.si->phnum,
-                                      relocator.si->load_bias) < 0) {
-      DL_ERR("can't unprotect loadable segments for \"%s\": %s",
-             relocator.si->get_realpath(), strerror(errno));
+                                      relocator.si->load_bias, relocator.si->should_pad_segments(),
+                                      relocator.si->should_use_16kib_app_compat()) < 0) {
+      DL_ERR("can't unprotect loadable segments for \"%s\": %m",
+             relocator.si->get_realpath());
       return false;
     }
     return true;
   };
 #endif
 
-  auto trace_reloc = [](const char* fmt, ...) __printflike(2, 3) {
-    if (IsGeneral &&
-        g_ld_debug_verbosity > LINKER_VERBOSITY_TRACE &&
-        DO_TRACE_RELO) {
-      va_list ap;
-      va_start(ap, fmt);
-      linker_log_va_list(LINKER_VERBOSITY_TRACE, fmt, ap);
-      va_end(ap);
-    }
-  };
-
   // Skip symbol lookup for R_GENERIC_NONE relocations.
   if (__predict_false(r_type == R_GENERIC_NONE)) {
-    trace_reloc("RELO NONE");
+    LD_DEBUG(reloc && IsGeneral, "RELO NONE");
     return true;
   }
 
@@ -228,6 +224,12 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
   auto get_addend_rel   = [&]() -> ElfW(Addr) { return *static_cast<ElfW(Addr)*>(rel_target); };
   auto get_addend_norel = [&]() -> ElfW(Addr) { return 0; };
 #endif
+
+  if (!IsGeneral && __predict_false(is_tls_reloc(r_type))) {
+    // Always process TLS relocations using the slow code path, so that STB_LOCAL symbols are
+    // diagnosed, and ifunc processing is skipped.
+    return process_relocation_general(relocator, reloc);
+  }
 
   if (IsGeneral && is_tls_reloc(r_type)) {
     if (r_sym == 0) {
@@ -242,8 +244,15 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
       //  - https://groups.google.com/d/topic/generic-abi/dJ4_Y78aQ2M/discussion
       //  - https://sourceware.org/bugzilla/show_bug.cgi?id=17699
       sym = &relocator.si_symtab[r_sym];
-      DL_ERR("unexpected TLS reference to local symbol \"%s\" in \"%s\": sym type %d, rel type %u",
-             sym_name, relocator.si->get_realpath(), ELF_ST_TYPE(sym->st_info), r_type);
+      auto sym_type = ELF_ST_TYPE(sym->st_info);
+      if (sym_type == STT_SECTION) {
+        DL_ERR("unexpected TLS reference to local section in \"%s\": sym type %d, rel type %u",
+               relocator.si->get_realpath(), sym_type, r_type);
+      } else {
+        DL_ERR(
+            "unexpected TLS reference to local symbol \"%s\" in \"%s\": sym type %d, rel type %u",
+            sym_name, relocator.si->get_realpath(), sym_type, r_type);
+      }
       return false;
     } else if (!lookup_symbol<IsGeneral>(relocator, r_sym, sym_name, &found_in, &sym)) {
       return false;
@@ -297,8 +306,8 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
     if (r_type == R_GENERIC_JUMP_SLOT) {
       count_relocation_if<IsGeneral>(kRelocAbsolute);
       const ElfW(Addr) result = sym_addr + get_addend_norel();
-      trace_reloc("RELO JMP_SLOT %16p <- %16p %s",
-                  rel_target, reinterpret_cast<void*>(result), sym_name);
+      LD_DEBUG(reloc && IsGeneral, "RELO JMP_SLOT %16p <- %16p %s",
+               rel_target, reinterpret_cast<void*>(result), sym_name);
       *static_cast<ElfW(Addr)*>(rel_target) = result;
       return true;
     }
@@ -310,9 +319,10 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
     // common in non-platform binaries.
     if (r_type == R_GENERIC_ABSOLUTE) {
       count_relocation_if<IsGeneral>(kRelocAbsolute);
+      if (found_in) sym_addr = found_in->apply_memtag_if_mte_globals(sym_addr);
       const ElfW(Addr) result = sym_addr + get_addend_rel();
-      trace_reloc("RELO ABSOLUTE %16p <- %16p %s",
-                  rel_target, reinterpret_cast<void*>(result), sym_name);
+      LD_DEBUG(reloc && IsGeneral, "RELO ABSOLUTE %16p <- %16p %s",
+               rel_target, reinterpret_cast<void*>(result), sym_name);
       *static_cast<ElfW(Addr)*>(rel_target) = result;
       return true;
     } else if (r_type == R_GENERIC_GLOB_DAT) {
@@ -320,18 +330,30 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
       // document (IHI0044F) specifies that R_ARM_GLOB_DAT has an addend, but Bionic isn't adding
       // it.
       count_relocation_if<IsGeneral>(kRelocAbsolute);
+      if (found_in) sym_addr = found_in->apply_memtag_if_mte_globals(sym_addr);
       const ElfW(Addr) result = sym_addr + get_addend_norel();
-      trace_reloc("RELO GLOB_DAT %16p <- %16p %s",
-                  rel_target, reinterpret_cast<void*>(result), sym_name);
+      LD_DEBUG(reloc && IsGeneral, "RELO GLOB_DAT %16p <- %16p %s",
+               rel_target, reinterpret_cast<void*>(result), sym_name);
       *static_cast<ElfW(Addr)*>(rel_target) = result;
       return true;
     } else if (r_type == R_GENERIC_RELATIVE) {
       // In practice, r_sym is always zero, but if it weren't, the linker would still look up the
       // referenced symbol (and abort if the symbol isn't found), even though it isn't used.
       count_relocation_if<IsGeneral>(kRelocRelative);
-      const ElfW(Addr) result = relocator.si->load_bias + get_addend_rel();
-      trace_reloc("RELO RELATIVE %16p <- %16p",
-                  rel_target, reinterpret_cast<void*>(result));
+      ElfW(Addr) result = relocator.si->load_bias + get_addend_rel();
+      // MTE globals reuses the place bits for additional tag-derivation metadata for
+      // R_AARCH64_RELATIVE relocations, which makes it incompatible with
+      // `-Wl,--apply-dynamic-relocs`. This is enforced by lld, however there's nothing stopping
+      // Android binaries (particularly prebuilts) from building with this linker flag if they're
+      // not built with MTE globals. Thus, don't use the new relocation semantics if this DSO
+      // doesn't have MTE globals.
+      if (relocator.si->should_tag_memtag_globals()) {
+        int64_t* place = static_cast<int64_t*>(rel_target);
+        int64_t offset = *place;
+        result = relocator.si->apply_memtag_if_mte_globals(result + offset) - offset;
+      }
+      LD_DEBUG(reloc && IsGeneral, "RELO RELATIVE %16p <- %16p",
+               rel_target, reinterpret_cast<void*>(result));
       *static_cast<ElfW(Addr)*>(rel_target) = result;
       return true;
     }
@@ -352,8 +374,8 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
       if (!relocator.si->is_linker()) {
         count_relocation_if<IsGeneral>(kRelocRelative);
         const ElfW(Addr) ifunc_addr = relocator.si->load_bias + get_addend_rel();
-        trace_reloc("RELO IRELATIVE %16p <- %16p",
-                    rel_target, reinterpret_cast<void*>(ifunc_addr));
+        LD_DEBUG(reloc && IsGeneral, "RELO IRELATIVE %16p <- %16p",
+                 rel_target, reinterpret_cast<void*>(ifunc_addr));
         if (handle_text_relocs && !protect_segments()) return false;
         const ElfW(Addr) result = call_ifunc_resolver(ifunc_addr);
         if (handle_text_relocs && !unprotect_segments()) return false;
@@ -390,8 +412,8 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
           }
         }
         tpoff += sym_addr + get_addend_rel();
-        trace_reloc("RELO TLS_TPREL %16p <- %16p %s",
-                    rel_target, reinterpret_cast<void*>(tpoff), sym_name);
+        LD_DEBUG(reloc && IsGeneral, "RELO TLS_TPREL %16p <- %16p %s",
+                 rel_target, reinterpret_cast<void*>(tpoff), sym_name);
         *static_cast<ElfW(Addr)*>(rel_target) = tpoff;
       }
       break;
@@ -404,25 +426,26 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
         } else {
           CHECK(found_in->get_tls() != nullptr); // We rejected a missing TLS segment above.
           module_id = found_in->get_tls()->module_id;
+          CHECK(module_id != kTlsUninitializedModuleId);
         }
-        trace_reloc("RELO TLS_DTPMOD %16p <- %zu %s",
-                    rel_target, module_id, sym_name);
+        LD_DEBUG(reloc && IsGeneral, "RELO TLS_DTPMOD %16p <- %zu %s",
+                 rel_target, module_id, sym_name);
         *static_cast<ElfW(Addr)*>(rel_target) = module_id;
       }
       break;
     case R_GENERIC_TLS_DTPREL:
       count_relocation_if<IsGeneral>(kRelocRelative);
       {
-        const ElfW(Addr) result = sym_addr + get_addend_rel();
-        trace_reloc("RELO TLS_DTPREL %16p <- %16p %s",
-                    rel_target, reinterpret_cast<void*>(result), sym_name);
+        const ElfW(Addr) result = sym_addr + get_addend_rel() - TLS_DTV_OFFSET;
+        LD_DEBUG(reloc && IsGeneral, "RELO TLS_DTPREL %16p <- %16p %s",
+                 rel_target, reinterpret_cast<void*>(result), sym_name);
         *static_cast<ElfW(Addr)*>(rel_target) = result;
       }
       break;
 
-#if defined(__aarch64__)
-    // Bionic currently only implements TLSDESC for arm64. This implementation should work with
-    // other architectures, as long as the resolver functions are implemented.
+#if defined(__aarch64__) || defined(__riscv)
+    // Bionic currently implements TLSDESC for arm64 and riscv64. This implementation should work
+    // with other architectures, as long as the resolver functions are implemented.
     case R_GENERIC_TLSDESC:
       count_relocation_if<IsGeneral>(kRelocRelative);
       {
@@ -432,8 +455,8 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
           // Unresolved weak relocation.
           desc->func = tlsdesc_resolver_unresolved_weak;
           desc->arg = addend;
-          trace_reloc("RELO TLSDESC %16p <- unresolved weak, addend 0x%zx %s",
-                      rel_target, static_cast<size_t>(addend), sym_name);
+          LD_DEBUG(reloc && IsGeneral, "RELO TLSDESC %16p <- unresolved weak, addend 0x%zx %s",
+                   rel_target, static_cast<size_t>(addend), sym_name);
         } else {
           CHECK(found_in->get_tls() != nullptr); // We rejected a missing TLS segment above.
           size_t module_id = found_in->get_tls()->module_id;
@@ -441,10 +464,10 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
           if (mod.static_offset != SIZE_MAX) {
             desc->func = tlsdesc_resolver_static;
             desc->arg = mod.static_offset - relocator.tls_tp_base + sym_addr + addend;
-            trace_reloc("RELO TLSDESC %16p <- static (0x%zx - 0x%zx + 0x%zx + 0x%zx) %s",
-                        rel_target, mod.static_offset, relocator.tls_tp_base,
-                        static_cast<size_t>(sym_addr), static_cast<size_t>(addend),
-                        sym_name);
+            LD_DEBUG(reloc && IsGeneral, "RELO TLSDESC %16p <- static (0x%zx - 0x%zx + 0x%zx + 0x%zx) %s",
+                     rel_target, mod.static_offset, relocator.tls_tp_base,
+                     static_cast<size_t>(sym_addr), static_cast<size_t>(addend),
+                     sym_name);
           } else {
             relocator.tlsdesc_args->push_back({
               .generation = mod.first_generation,
@@ -457,22 +480,22 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
               desc, relocator.tlsdesc_args->size() - 1
             });
             const TlsDynamicResolverArg& desc_arg = relocator.tlsdesc_args->back();
-            trace_reloc("RELO TLSDESC %16p <- dynamic (gen %zu, mod %zu, off %zu) %s",
-                        rel_target, desc_arg.generation, desc_arg.index.module_id,
-                        desc_arg.index.offset, sym_name);
+            LD_DEBUG(reloc && IsGeneral, "RELO TLSDESC %16p <- dynamic (gen %zu, mod %zu, off %zu) %s",
+                     rel_target, desc_arg.generation, desc_arg.index.module_id,
+                     desc_arg.index.offset, sym_name);
           }
         }
       }
       break;
-#endif  // defined(__aarch64__)
+#endif  // defined(__aarch64__) || defined(__riscv)
 
 #if defined(__x86_64__)
     case R_X86_64_32:
       count_relocation_if<IsGeneral>(kRelocAbsolute);
       {
         const Elf32_Addr result = sym_addr + reloc.r_addend;
-        trace_reloc("RELO R_X86_64_32 %16p <- 0x%08x %s",
-                    rel_target, result, sym_name);
+        LD_DEBUG(reloc && IsGeneral, "RELO R_X86_64_32 %16p <- 0x%08x %s",
+                 rel_target, result, sym_name);
         *static_cast<Elf32_Addr*>(rel_target) = result;
       }
       break;
@@ -482,9 +505,9 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
         const ElfW(Addr) target = sym_addr + reloc.r_addend;
         const ElfW(Addr) base = reinterpret_cast<ElfW(Addr)>(rel_target);
         const Elf32_Addr result = target - base;
-        trace_reloc("RELO R_X86_64_PC32 %16p <- 0x%08x (%16p - %16p) %s",
-                    rel_target, result, reinterpret_cast<void*>(target),
-                    reinterpret_cast<void*>(base), sym_name);
+        LD_DEBUG(reloc && IsGeneral, "RELO R_X86_64_PC32 %16p <- 0x%08x (%16p - %16p) %s",
+                 rel_target, result, reinterpret_cast<void*>(target),
+                 reinterpret_cast<void*>(base), sym_name);
         *static_cast<Elf32_Addr*>(rel_target) = result;
       }
       break;
@@ -495,9 +518,9 @@ static bool process_relocation_impl(Relocator& relocator, const rel_t& reloc) {
         const ElfW(Addr) target = sym_addr + get_addend_rel();
         const ElfW(Addr) base = reinterpret_cast<ElfW(Addr)>(rel_target);
         const ElfW(Addr) result = target - base;
-        trace_reloc("RELO R_386_PC32 %16p <- 0x%08x (%16p - %16p) %s",
-                    rel_target, result, reinterpret_cast<void*>(target),
-                    reinterpret_cast<void*>(base), sym_name);
+        LD_DEBUG(reloc && IsGeneral, "RELO R_386_PC32 %16p <- 0x%08x (%16p - %16p) %s",
+                 rel_target, result, reinterpret_cast<void*>(target),
+                 reinterpret_cast<void*>(base), sym_name);
         *static_cast<ElfW(Addr)*>(rel_target) = result;
       }
       break;
@@ -542,15 +565,11 @@ static bool packed_relocate_impl(Relocator& relocator, sleb128_decoder decoder) 
 }
 
 static bool needs_slow_relocate_loop(const Relocator& relocator __unused) {
-#if STATS
-  // TODO: This could become a run-time flag.
-  return true;
-#endif
 #if !defined(__LP64__)
   if (relocator.si->has_text_relocations) return true;
 #endif
-  if (g_ld_debug_verbosity > LINKER_VERBOSITY_TRACE) {
-    // If linker TRACE() is enabled, then each relocation is logged.
+  // Both LD_DEBUG relocation logging and statistics need the slow path.
+  if (g_linker_debug_config.any || g_linker_debug_config.statistics) {
     return true;
   }
   return false;
@@ -571,6 +590,11 @@ static bool packed_relocate(Relocator& relocator, Args ...args) {
 }
 
 bool soinfo::relocate(const SymbolLookupList& lookup_list) {
+  // For ldd, don't apply relocations because TLS segments are not registered.
+  // We don't care whether ldd diagnoses unresolved symbols.
+  if (g_is_ldd) {
+    return true;
+  }
 
   VersionTracker version_tracker;
 
@@ -586,6 +610,17 @@ bool soinfo::relocate(const SymbolLookupList& lookup_list) {
   relocator.tlsdesc_args = &tlsdesc_args_;
   relocator.tls_tp_base = __libc_shared_globals()->static_tls_layout.offset_thread_pointer();
 
+  // The linker already applied its RELR relocations in an earlier pass, so
+  // skip the RELR relocations for the linker.
+  if (relr_ != nullptr && !is_linker()) {
+    LD_DEBUG(reloc, "[ relocating %s relr ]", get_realpath());
+    const ElfW(Relr)* begin = relr_;
+    const ElfW(Relr)* end = relr_ + relr_count_;
+    if (!relocate_relr(begin, end, load_bias, should_tag_memtag_globals())) {
+      return false;
+    }
+  }
+
   if (android_relocs_ != nullptr) {
     // check signature
     if (android_relocs_size_ > 3 &&
@@ -593,7 +628,7 @@ bool soinfo::relocate(const SymbolLookupList& lookup_list) {
         android_relocs_[1] == 'P' &&
         android_relocs_[2] == 'S' &&
         android_relocs_[3] == '2') {
-      DEBUG("[ android relocating %s ]", get_realpath());
+      LD_DEBUG(reloc, "[ relocating %s android rel/rela ]", get_realpath());
 
       const uint8_t* packed_relocs = android_relocs_ + 4;
       const size_t packed_relocs_size = android_relocs_size_ - 4;
@@ -607,36 +642,29 @@ bool soinfo::relocate(const SymbolLookupList& lookup_list) {
     }
   }
 
-  if (relr_ != nullptr) {
-    DEBUG("[ relocating %s relr ]", get_realpath());
-    if (!relocate_relr()) {
-      return false;
-    }
-  }
-
 #if defined(USE_RELA)
   if (rela_ != nullptr) {
-    DEBUG("[ relocating %s rela ]", get_realpath());
+    LD_DEBUG(reloc, "[ relocating %s rela ]", get_realpath());
 
     if (!plain_relocate<RelocMode::Typical>(relocator, rela_, rela_count_)) {
       return false;
     }
   }
   if (plt_rela_ != nullptr) {
-    DEBUG("[ relocating %s plt rela ]", get_realpath());
+    LD_DEBUG(reloc, "[ relocating %s plt rela ]", get_realpath());
     if (!plain_relocate<RelocMode::JumpTable>(relocator, plt_rela_, plt_rela_count_)) {
       return false;
     }
   }
 #else
   if (rel_ != nullptr) {
-    DEBUG("[ relocating %s rel ]", get_realpath());
+    LD_DEBUG(reloc, "[ relocating %s rel ]", get_realpath());
     if (!plain_relocate<RelocMode::Typical>(relocator, rel_, rel_count_)) {
       return false;
     }
   }
   if (plt_rel_ != nullptr) {
-    DEBUG("[ relocating %s plt rel ]", get_realpath());
+   LD_DEBUG(reloc, "[ relocating %s plt rel ]", get_realpath());
     if (!plain_relocate<RelocMode::JumpTable>(relocator, plt_rel_, plt_rel_count_)) {
       return false;
     }
@@ -645,14 +673,14 @@ bool soinfo::relocate(const SymbolLookupList& lookup_list) {
 
   // Once the tlsdesc_args_ vector's size is finalized, we can write the addresses of its elements
   // into the TLSDESC relocations.
-#if defined(__aarch64__)
-  // Bionic currently only implements TLSDESC for arm64.
+#if defined(__aarch64__) || defined(__riscv)
+  // Bionic currently only implements TLSDESC for arm64 and riscv64.
   for (const std::pair<TlsDescriptor*, size_t>& pair : relocator.deferred_tlsdesc_relocs) {
     TlsDescriptor* desc = pair.first;
     desc->func = tlsdesc_resolver_dynamic;
     desc->arg = reinterpret_cast<size_t>(&tlsdesc_args_[pair.second]);
   }
-#endif
+#endif // defined(__aarch64__) || defined(__riscv)
 
   return true;
 }

@@ -43,8 +43,9 @@
  * @brief Extra string functions.
  */
 
-#include <sys/types.h>
 #include <sys/cdefs.h>
+
+#include <sys/types.h>
 #include <xlocale.h>
 
 #include <bits/strcasecmp.h>
@@ -61,18 +62,18 @@ __BEGIN_DECLS
 
 /** Deprecated. Use memmove() instead. */
 #define bcopy(b1, b2, len) __bionic_bcopy((b1), (b2), (len))
-static __inline__ __always_inline void __bionic_bcopy(const void* b1, void* b2, size_t len) {
+static __inline __always_inline void __bionic_bcopy(const void* _Nonnull b1, void* _Nonnull b2, size_t len) {
   __builtin_memmove(b2, b1, len);
 }
 
 /** Deprecated. Use memset() instead. */
 #define bzero(b, len) __bionic_bzero((b), (len))
-static __inline__ __always_inline void __bionic_bzero(void* b, size_t len) {
+static __inline __always_inline void __bionic_bzero(void* _Nonnull b, size_t len) {
   __builtin_memset(b, 0, len);
 }
 
 /**
- * [ffs(3)](http://man7.org/linux/man-pages/man3/ffs.3.html) finds the
+ * [ffs(3)](https://man7.org/linux/man-pages/man3/ffs.3.html) finds the
  * first set bit in `__n`.
  *
  * Returns 0 if no bit is set, or the index of the lowest set bit (counting
@@ -83,7 +84,7 @@ __BIONIC_STRINGS_INLINE int ffs(int __n) {
 }
 
 /**
- * [ffsl(3)](http://man7.org/linux/man-pages/man3/ffsl.3.html) finds the
+ * [ffsl(3)](https://man7.org/linux/man-pages/man3/ffsl.3.html) finds the
  * first set bit in `__n`.
  *
  * Returns 0 if no bit is set, or the index of the lowest set bit (counting
@@ -94,7 +95,7 @@ __BIONIC_STRINGS_INLINE int ffsl(long __n) {
 }
 
 /**
- * [ffsll(3)](http://man7.org/linux/man-pages/man3/ffsll.3.html) finds the
+ * [ffsll(3)](https://man7.org/linux/man-pages/man3/ffsll.3.html) finds the
  * first set bit in `__n`.
  *
  * Returns 0 if no bit is set, or the index of the lowest set bit (counting

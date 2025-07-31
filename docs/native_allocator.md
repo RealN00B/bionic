@@ -323,13 +323,13 @@ one after another. This will cause a lot of threads allocating at the same
 time. The trace data does not include timestamps,
 so it is not possible to create a completely accurate replay.
 
-To generate these traces, see the [Malloc Debug documentation](https://android.googlesource.com/platform/bionic/+/master/libc/malloc_debug/README.md),
-the option [record\_allocs](https://android.googlesource.com/platform/bionic/+/master/libc/malloc_debug/README.md#record_allocs_total_entries).
+To generate these traces, see the [Malloc Debug documentation](https://android.googlesource.com/platform/bionic/+/main/libc/malloc_debug/README.md),
+the option [record\_allocs](https://android.googlesource.com/platform/bionic/+/main/libc/malloc_debug/README.md#record_allocs_total_entries).
 
 To run these benchmarks, first copy the trace files to the target using
 these commands:
 
-    adb shell push system/extras/traces /data/local/tmp
+    adb push system/extras/memory_replay/traces /data/local/tmp
 
 Since all of the traces come from applications, the `memory_replay` program
 will always call `mallopt(M_DECAY_TIME, 1)' before running the trace.

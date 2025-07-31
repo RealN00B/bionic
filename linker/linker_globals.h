@@ -54,7 +54,7 @@ void DL_WARN_documented_change(int api_level, const char* doc_link, const char* 
 #define DL_ERR_AND_LOG(fmt, x...) \
   do { \
     DL_ERR(fmt, ##x); \
-    PRINT(fmt, ##x); \
+    __linker_log(ANDROID_LOG_ERROR, fmt, ##x); \
   } while (false)
 
 #define DL_OPEN_ERR(fmt, x...) \
@@ -104,3 +104,4 @@ class DlErrorRestorer {
 };
 
 __LIBC_HIDDEN__ extern bool g_is_ldd;
+__LIBC_HIDDEN__ extern pthread_mutex_t g_dl_mutex;

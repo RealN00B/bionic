@@ -23,11 +23,13 @@
 #include <malloc.h>
 #include <math.h>
 #include <stdint.h>
+#include <sys/cdefs.h>
 
 #include <algorithm>
 #include <vector>
 
 #include "buffer_tests.h"
+#include "utils.h"
 
 #if defined(NOFORTIFY)
 #define STRING_TEST string_nofortify
@@ -95,6 +97,7 @@ TEST(STRING_TEST, strerror_concurrent) {
 }
 
 TEST(STRING_TEST, gnu_strerror_r) {
+#if !defined(ANDROID_HOST_MUSL)
   char buf[256];
 
   // Note that glibc doesn't necessarily write into the buffer.
@@ -121,7 +124,10 @@ TEST(STRING_TEST, gnu_strerror_r) {
   ASSERT_EQ(buf, strerror_r(4567, buf, 2));
   ASSERT_STREQ("U", buf);
   // The GNU strerror_r doesn't set errno (the POSIX one sets it to ERANGE).
-  ASSERT_EQ(0, errno);
+  ASSERT_ERRNO(0);
+#else
+  GTEST_SKIP() << "musl doesn't have GNU strerror_r";
+#endif
 }
 
 TEST(STRING_TEST, strsignal) {
@@ -131,7 +137,7 @@ TEST(STRING_TEST, strsignal) {
   // A real-time signal.
   ASSERT_STREQ("Real-time signal 14", strsignal(SIGRTMIN + 14));
   // One of the signals the C library keeps to itself.
-  ASSERT_STREQ("Unknown signal 32", strsignal(__SIGRTMIN));
+  ASSERT_STREQ("Unknown signal 32", strsignal(32));  // __SIGRTMIN
 
   // Errors.
   ASSERT_STREQ("Unknown signal -1", strsignal(-1)); // Too small.
@@ -313,33 +319,34 @@ TEST(STRING_TEST, strcpy4) {
 // one byte target with "\0" source
 TEST(STRING_TEST, stpcpy2) {
   char buf[1];
+  memset(buf, 'A', sizeof(buf));
   char* orig = strdup("");
-  ASSERT_EQ(buf, stpcpy(buf, orig));
-  ASSERT_EQ('\0', buf[0]);
+  EXPECT_EQ(buf, stpcpy(buf, orig));
+  EXPECT_EQ('\0', buf[0]);
   free(orig);
 }
 
 // multibyte target where we under fill target
 TEST(STRING_TEST, stpcpy3) {
   char buf[10];
-  char* orig = strdup("12345");
   memset(buf, 'A', sizeof(buf));
-  ASSERT_EQ(buf+strlen(orig), stpcpy(buf, orig));
-  ASSERT_STREQ("12345", buf);
-  ASSERT_EQ('A',  buf[6]);
-  ASSERT_EQ('A',  buf[7]);
-  ASSERT_EQ('A',  buf[8]);
-  ASSERT_EQ('A',  buf[9]);
+  char* orig = strdup("12345");
+  EXPECT_EQ(buf+strlen(orig), stpcpy(buf, orig));
+  EXPECT_STREQ("12345", buf);
+  EXPECT_EQ('A',  buf[6]);
+  EXPECT_EQ('A',  buf[7]);
+  EXPECT_EQ('A',  buf[8]);
+  EXPECT_EQ('A',  buf[9]);
   free(orig);
 }
 
 // multibyte target where we fill target exactly
 TEST(STRING_TEST, stpcpy4) {
   char buf[10];
-  char* orig = strdup("123456789");
   memset(buf, 'A', sizeof(buf));
-  ASSERT_EQ(buf+strlen(orig), stpcpy(buf, orig));
-  ASSERT_STREQ("123456789", buf);
+  char* orig = strdup("123456789");
+  EXPECT_EQ(buf+strlen(orig), stpcpy(buf, orig));
+  EXPECT_STREQ("123456789", buf);
   free(orig);
 }
 
@@ -733,15 +740,11 @@ TEST(STRING_TEST, strncpy) {
     // Set the second half of ptr to the expected pattern in ptr2.
     memset(state.ptr + state.MAX_LEN, '\1', state.MAX_LEN);
     memcpy(state.ptr + state.MAX_LEN, state.ptr1, copy_len);
-    size_t expected_end;
     if (copy_len > ptr1_len) {
       memset(state.ptr + state.MAX_LEN + ptr1_len, '\0', copy_len - ptr1_len);
-      expected_end = ptr1_len;
-    } else {
-      expected_end = copy_len;
     }
 
-    ASSERT_EQ(state.ptr2 + expected_end, stpncpy(state.ptr2, state.ptr1, copy_len));
+    ASSERT_EQ(state.ptr2, strncpy(state.ptr2, state.ptr1, copy_len));
 
     // Verify ptr1 was not modified.
     ASSERT_EQ(0, memcmp(state.ptr1, state.ptr, state.MAX_LEN));
@@ -1473,14 +1476,17 @@ TEST(STRING_TEST, strrchr_overread) {
   RunSingleBufferOverreadTest(DoStrrchrTest);
 }
 
+#if !defined(ANDROID_HOST_MUSL)
 static void TestBasename(const char* in, const char* expected_out) {
   errno = 0;
   const char* out = basename(in);
   ASSERT_STREQ(expected_out, out) << in;
-  ASSERT_EQ(0, errno) << in;
+  ASSERT_ERRNO(0) << in;
 }
+#endif
 
 TEST(STRING_TEST, __gnu_basename) {
+#if !defined(ANDROID_HOST_MUSL)
   TestBasename("", "");
   TestBasename("/usr/lib", "lib");
   TestBasename("/usr/", "");
@@ -1490,6 +1496,9 @@ TEST(STRING_TEST, __gnu_basename) {
   TestBasename("..", "..");
   TestBasename("///", "");
   TestBasename("//usr//lib//", "");
+#else
+  GTEST_SKIP() << "musl doesn't have GNU basename";
+#endif
 }
 
 TEST(STRING_TEST, strnlen_147048) {
@@ -1661,4 +1670,29 @@ TEST(STRING_TEST, memccpy_smoke) {
   memset(dst, 0, sizeof(dst));
   ASSERT_EQ(nullptr, memccpy(dst, "hello world", ' ', 4));
   ASSERT_STREQ("hell", dst);
+}
+
+TEST(STRING_TEST, memset_explicit_smoke) {
+#if defined(__BIONIC__)
+  // We can't reliably test that the compiler won't optimize out calls to
+  // memset_explicit(), but we can at least check that it behaves like memset.
+  char buf[32];
+  memset_explicit(buf, 'x', sizeof(buf));
+  ASSERT_TRUE(memcmp(buf, "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", sizeof(buf)) == 0);
+#else
+  GTEST_SKIP() << "memset_explicit not available";
+#endif
+}
+
+TEST(STRING_TEST, strerrorname_np) {
+#if defined(__BIONIC__)
+  ASSERT_STREQ("0", strerrorname_np(0));
+  ASSERT_STREQ("EINVAL", strerrorname_np(EINVAL));
+  ASSERT_STREQ("ENOSYS", strerrorname_np(ENOSYS));
+
+  ASSERT_EQ(nullptr, strerrorname_np(-1));
+  ASSERT_EQ(nullptr, strerrorname_np(666));
+#else
+  GTEST_SKIP() << "strerrorname_np not available";
+#endif
 }

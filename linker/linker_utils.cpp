@@ -75,7 +75,7 @@ std::string dirname(const char* path) {
 bool normalize_path(const char* path, std::string* normalized_path) {
   // Input should be an absolute path
   if (path[0] != '/') {
-    PRINT("normalize_path - invalid input: \"%s\", the input path should be absolute", path);
+    DL_WARN("normalize_path - invalid input: \"%s\", the input path should be absolute", path);
     return false;
   }
 
@@ -144,7 +144,7 @@ bool parse_zip_path(const char* input_path, std::string* zip_path, std::string* 
   }
 
   const char* const path = normalized_path.c_str();
-  TRACE("Trying zip file open from path \"%s\" -> normalized \"%s\"", input_path, path);
+  LD_DEBUG(any, "Trying zip file open from path \"%s\" -> normalized \"%s\"", input_path, path);
 
   // Treat an '!/' separator inside a path as the separator between the name
   // of the zip file on disk and the subdirectory to search within it.
@@ -157,7 +157,7 @@ bool parse_zip_path(const char* input_path, std::string* zip_path, std::string* 
 
   char buf[512];
   if (strlcpy(buf, path, sizeof(buf)) >= sizeof(buf)) {
-    PRINT("Warning: ignoring very long library path: %s", path);
+    DL_WARN("ignoring very long library path: %s", path);
     return false;
   }
 
@@ -169,12 +169,6 @@ bool parse_zip_path(const char* input_path, std::string* zip_path, std::string* 
   return true;
 }
 
-constexpr off64_t kPageMask = ~static_cast<off64_t>(PAGE_SIZE-1);
-
-off64_t page_start(off64_t offset) {
-  return offset & kPageMask;
-}
-
 bool safe_add(off64_t* out, off64_t a, size_t b) {
   CHECK(a >= 0);
   if (static_cast<uint64_t>(INT64_MAX - a) < b) {
@@ -183,10 +177,6 @@ bool safe_add(off64_t* out, off64_t a, size_t b) {
 
   *out = a + b;
   return true;
-}
-
-size_t page_offset(off64_t offset) {
-  return static_cast<size_t>(offset & (PAGE_SIZE-1));
 }
 
 void split_path(const char* path, const char* delimiters,
@@ -217,7 +207,7 @@ std::string resolve_path(const std::string& path) {
   if (realpath(original_path, resolved_path) != nullptr) {
     struct stat s;
     if (stat(resolved_path, &s) == -1) {
-      DL_WARN("Warning: cannot stat file \"%s\": %s (ignoring)", resolved_path, strerror(errno));
+      DL_WARN("Warning: cannot stat file \"%s\": %m (ignoring)", resolved_path);
       return "";
     }
     if (!S_ISDIR(s.st_mode)) {
@@ -236,8 +226,7 @@ std::string resolve_path(const std::string& path) {
     std::string entry_path;
     if (parse_zip_path(normalized_path.c_str(), &zip_path, &entry_path)) {
       if (realpath(zip_path.c_str(), resolved_path) == nullptr) {
-        DL_WARN("Warning: unable to resolve \"%s\": %s (ignoring)",
-                zip_path.c_str(), strerror(errno));
+        DL_WARN("Warning: unable to resolve \"%s\": %m (ignoring)", zip_path.c_str());
         return "";
       }
 

@@ -40,8 +40,9 @@ class MallocDebugConfigTest : public ::testing::Test {
 };
 
 std::string usage_string(
-  "6 malloc_debug For malloc debug option descriptions go to:\n"
-  "6 malloc_debug   https://android.googlesource.com/platform/bionic/+/master/libc/malloc_debug/README.md\n");
+    "6 malloc_debug For malloc debug option descriptions go to:\n"
+    "6 malloc_debug   "
+    "https://android.googlesource.com/platform/bionic/+/main/libc/malloc_debug/README.md\n");
 
 TEST_F(MallocDebugConfigTest, unknown_option) {
 
@@ -215,7 +216,21 @@ TEST_F(MallocDebugConfigTest, backtrace) {
   ASSERT_FALSE(config->backtrace_enable_on_signal());
   ASSERT_FALSE(config->backtrace_dump_on_exit());
 
+  ASSERT_TRUE(InitConfig("bt=23")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE | TRACK_ALLOCS, config->options());
+  ASSERT_EQ(23U, config->backtrace_frames());
+  ASSERT_TRUE(config->backtrace_enabled());
+  ASSERT_FALSE(config->backtrace_enable_on_signal());
+  ASSERT_FALSE(config->backtrace_dump_on_exit());
+
   ASSERT_TRUE(InitConfig("backtrace")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE | TRACK_ALLOCS, config->options());
+  ASSERT_EQ(16U, config->backtrace_frames());
+  ASSERT_TRUE(config->backtrace_enabled());
+  ASSERT_FALSE(config->backtrace_enable_on_signal());
+  ASSERT_FALSE(config->backtrace_dump_on_exit());
+
+  ASSERT_TRUE(InitConfig("bt")) << getFakeLogPrint();
   ASSERT_EQ(BACKTRACE | TRACK_ALLOCS, config->options());
   ASSERT_EQ(16U, config->backtrace_frames());
   ASSERT_TRUE(config->backtrace_enabled());
@@ -234,7 +249,21 @@ TEST_F(MallocDebugConfigTest, backtrace_enable_on_signal) {
   ASSERT_TRUE(config->backtrace_enable_on_signal());
   ASSERT_FALSE(config->backtrace_dump_on_exit());
 
+  ASSERT_TRUE(InitConfig("bt_en_on_sig=64")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE | TRACK_ALLOCS, config->options());
+  ASSERT_EQ(64U, config->backtrace_frames());
+  ASSERT_FALSE(config->backtrace_enabled());
+  ASSERT_TRUE(config->backtrace_enable_on_signal());
+  ASSERT_FALSE(config->backtrace_dump_on_exit());
+
   ASSERT_TRUE(InitConfig("backtrace_enable_on_signal")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE | TRACK_ALLOCS, config->options());
+  ASSERT_EQ(16U, config->backtrace_frames());
+  ASSERT_FALSE(config->backtrace_enabled());
+  ASSERT_TRUE(config->backtrace_enable_on_signal());
+  ASSERT_FALSE(config->backtrace_dump_on_exit());
+
+  ASSERT_TRUE(InitConfig("bt_en_on_sig")) << getFakeLogPrint();
   ASSERT_EQ(BACKTRACE | TRACK_ALLOCS, config->options());
   ASSERT_EQ(16U, config->backtrace_frames());
   ASSERT_FALSE(config->backtrace_enabled());
@@ -288,6 +317,10 @@ TEST_F(MallocDebugConfigTest, backtrace_dump_on_exit) {
   ASSERT_EQ(0U, config->options());
   ASSERT_TRUE(config->backtrace_dump_on_exit());
 
+  ASSERT_TRUE(InitConfig("bt_dmp_on_ex")) << getFakeLogPrint();
+  ASSERT_EQ(0U, config->options());
+  ASSERT_TRUE(config->backtrace_dump_on_exit());
+
   ASSERT_STREQ("", getFakeLogBuf().c_str());
   ASSERT_STREQ("", getFakeLogPrint().c_str());
 }
@@ -307,7 +340,15 @@ TEST_F(MallocDebugConfigTest, backtrace_dump_prefix) {
   ASSERT_EQ(0U, config->options());
   ASSERT_EQ("/data/local/tmp/backtrace_heap", config->backtrace_dump_prefix());
 
+  ASSERT_TRUE(InitConfig("bt_dmp_pre")) << getFakeLogPrint();
+  ASSERT_EQ(0U, config->options());
+  ASSERT_EQ("/data/local/tmp/backtrace_heap", config->backtrace_dump_prefix());
+
   ASSERT_TRUE(InitConfig("backtrace_dump_prefix=/fake/location")) << getFakeLogPrint();
+  ASSERT_EQ(0U, config->options());
+  ASSERT_EQ("/fake/location", config->backtrace_dump_prefix());
+
+  ASSERT_TRUE(InitConfig("bt_dmp_pre=/fake/location")) << getFakeLogPrint();
   ASSERT_EQ(0U, config->options());
   ASSERT_EQ("/fake/location", config->backtrace_dump_prefix());
 
@@ -317,6 +358,9 @@ TEST_F(MallocDebugConfigTest, backtrace_dump_prefix) {
 
 TEST_F(MallocDebugConfigTest, backtrace_full) {
   ASSERT_TRUE(InitConfig("backtrace_full")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE_FULL, config->options());
+
+  ASSERT_TRUE(InitConfig("bt_full")) << getFakeLogPrint();
   ASSERT_EQ(BACKTRACE_FULL, config->options());
 
   ASSERT_STREQ("", getFakeLogBuf().c_str());
@@ -525,6 +569,25 @@ TEST_F(MallocDebugConfigTest, record_allocs_file) {
 
   ASSERT_STREQ("", getFakeLogBuf().c_str());
   ASSERT_STREQ("", getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, record_allocs_on_exit) {
+  ASSERT_TRUE(InitConfig("record_allocs_on_exit")) << getFakeLogPrint();
+  ASSERT_EQ(0U, config->options());
+  ASSERT_TRUE(config->record_allocs_on_exit());
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  ASSERT_STREQ("", getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, record_allocs_on_exit_error) {
+  ASSERT_FALSE(InitConfig("record_allocs_on_exit=something")) << getFakeLogPrint();
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  std::string log_msg(
+      "6 malloc_debug malloc_testing: value set for option 'record_allocs_on_exit' "
+      "which does not take a value\n");
+  ASSERT_STREQ((log_msg + usage_string).c_str(), getFakeLogPrint().c_str());
 }
 
 TEST_F(MallocDebugConfigTest, guard_min_error) {
@@ -760,4 +823,139 @@ TEST_F(MallocDebugConfigTest, trigger_verbose_fail) {
       "6 malloc_debug malloc_testing: value set for option 'verbose' "
       "which does not take a value\n");
   ASSERT_STREQ((log_msg + usage_string).c_str(), getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, check_unreachable_on_signal) {
+  ASSERT_TRUE(InitConfig("check_unreachable_on_signal")) << getFakeLogPrint();
+  ASSERT_EQ(CHECK_UNREACHABLE_ON_SIGNAL, config->options());
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  ASSERT_STREQ("", getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, trigger_check_unreachable_on_signal_fail) {
+  ASSERT_FALSE(InitConfig("check_unreachable_on_signal=200")) << getFakeLogPrint();
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  std::string log_msg(
+      "6 malloc_debug malloc_testing: value set for option 'check_unreachable_on_signal' "
+      "which does not take a value\n");
+  ASSERT_STREQ((log_msg + usage_string).c_str(), getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, log_allocator_stats_on_signal) {
+  ASSERT_TRUE(InitConfig("log_allocator_stats_on_signal")) << getFakeLogPrint();
+  ASSERT_EQ(LOG_ALLOCATOR_STATS_ON_SIGNAL, config->options());
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  ASSERT_STREQ("", getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, trigger_log_allocator_stats_on_signal_fail) {
+  ASSERT_FALSE(InitConfig("log_allocator_stats_on_signal=200")) << getFakeLogPrint();
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  std::string log_msg(
+      "6 malloc_debug malloc_testing: value set for option 'log_allocator_stats_on_signal' "
+      "which does not take a value\n");
+  ASSERT_STREQ((log_msg + usage_string).c_str(), getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, log_allocator_stats_on_exit) {
+  ASSERT_TRUE(InitConfig("log_allocator_stats_on_exit")) << getFakeLogPrint();
+  ASSERT_EQ(LOG_ALLOCATOR_STATS_ON_EXIT, config->options());
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  ASSERT_STREQ("", getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, trigger_log_allocator_stats_on_exit_fail) {
+  ASSERT_FALSE(InitConfig("log_allocator_stats_on_exit=200")) << getFakeLogPrint();
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  std::string log_msg(
+      "6 malloc_debug malloc_testing: value set for option 'log_allocator_stats_on_exit' "
+      "which does not take a value\n");
+  ASSERT_STREQ((log_msg + usage_string).c_str(), getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, size) {
+  ASSERT_TRUE(InitConfig("backtrace_size=37")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE_SPECIFIC_SIZES, config->options());
+  ASSERT_EQ(37U, config->backtrace_min_size_bytes());
+  ASSERT_EQ(37U, config->backtrace_max_size_bytes());
+
+  ASSERT_TRUE(InitConfig("bt_sz=39")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE_SPECIFIC_SIZES, config->options());
+  ASSERT_EQ(39U, config->backtrace_min_size_bytes());
+  ASSERT_EQ(39U, config->backtrace_max_size_bytes());
+
+  ASSERT_FALSE(InitConfig("backtrace_size")) << getFakeLogPrint();
+  ASSERT_FALSE(InitConfig("backtrace_size=0")) << getFakeLogPrint();
+  ASSERT_FALSE(InitConfig("backtrace_size=-1")) << getFakeLogPrint();
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  std::string log_msg("6 malloc_debug malloc_testing: bad value for option 'backtrace_size'\n" +
+                      usage_string +
+                      "6 malloc_debug malloc_testing: bad value for option 'backtrace_size', value "
+                      "must be >= 1: 0\n" +
+                      usage_string +
+                      "6 malloc_debug malloc_testing: bad value for option 'backtrace_size', value "
+                      "cannot be negative: -1\n" +
+                      usage_string);
+  ASSERT_STREQ(log_msg.c_str(), getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, min_size) {
+  ASSERT_TRUE(InitConfig("backtrace_min_size=9")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE_SPECIFIC_SIZES, config->options());
+  ASSERT_EQ(9U, config->backtrace_min_size_bytes());
+  ASSERT_EQ(SIZE_MAX, config->backtrace_max_size_bytes());
+
+  ASSERT_TRUE(InitConfig("bt_min_sz=11")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE_SPECIFIC_SIZES, config->options());
+  ASSERT_EQ(11U, config->backtrace_min_size_bytes());
+  ASSERT_EQ(SIZE_MAX, config->backtrace_max_size_bytes());
+
+  ASSERT_FALSE(InitConfig("backtrace_min_size")) << getFakeLogPrint();
+  ASSERT_FALSE(InitConfig("backtrace_min_size=0")) << getFakeLogPrint();
+  ASSERT_FALSE(InitConfig("backtrace_min_size=-1")) << getFakeLogPrint();
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  std::string log_msg("6 malloc_debug malloc_testing: bad value for option 'backtrace_min_size'\n" +
+                      usage_string +
+                      "6 malloc_debug malloc_testing: bad value for option 'backtrace_min_size', "
+                      "value must be >= 1: 0\n" +
+                      usage_string +
+                      "6 malloc_debug malloc_testing: bad value for option 'backtrace_min_size', "
+                      "value cannot be negative: -1\n" +
+                      usage_string);
+  ASSERT_STREQ(log_msg.c_str(), getFakeLogPrint().c_str());
+}
+
+TEST_F(MallocDebugConfigTest, max_size) {
+  ASSERT_TRUE(InitConfig("backtrace_max_size=13")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE_SPECIFIC_SIZES, config->options());
+  ASSERT_EQ(0U, config->backtrace_min_size_bytes());
+  ASSERT_EQ(13U, config->backtrace_max_size_bytes());
+
+  ASSERT_TRUE(InitConfig("bt_max_sz=15")) << getFakeLogPrint();
+  ASSERT_EQ(BACKTRACE_SPECIFIC_SIZES, config->options());
+  ASSERT_EQ(0U, config->backtrace_min_size_bytes());
+  ASSERT_EQ(15U, config->backtrace_max_size_bytes());
+
+  ASSERT_FALSE(InitConfig("backtrace_max_size")) << getFakeLogPrint();
+  ASSERT_FALSE(InitConfig("backtrace_max_size=0")) << getFakeLogPrint();
+  ASSERT_FALSE(InitConfig("backtrace_max_size=-1")) << getFakeLogPrint();
+
+  ASSERT_STREQ("", getFakeLogBuf().c_str());
+  std::string log_msg("6 malloc_debug malloc_testing: bad value for option 'backtrace_max_size'\n" +
+                      usage_string +
+                      "6 malloc_debug malloc_testing: bad value for option 'backtrace_max_size', "
+                      "value must be >= 1: 0\n" +
+                      usage_string +
+                      "6 malloc_debug malloc_testing: bad value for option 'backtrace_max_size', "
+                      "value cannot be negative: -1\n" +
+                      usage_string);
+  ASSERT_STREQ(log_msg.c_str(), getFakeLogPrint().c_str());
 }

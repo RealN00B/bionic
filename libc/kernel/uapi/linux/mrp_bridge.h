@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI_LINUX_MRP_BRIDGE_H_
 #define _UAPI_LINUX_MRP_BRIDGE_H_
 #include <linux/types.h>
@@ -68,83 +56,12 @@ enum br_mrp_tlv_header_type {
   BR_MRP_TLV_HEADER_IN_TOPO = 0x7,
   BR_MRP_TLV_HEADER_IN_LINK_DOWN = 0x8,
   BR_MRP_TLV_HEADER_IN_LINK_UP = 0x9,
+  BR_MRP_TLV_HEADER_IN_LINK_STATUS = 0xa,
   BR_MRP_TLV_HEADER_OPTION = 0x7f,
 };
 enum br_mrp_sub_tlv_header_type {
   BR_MRP_SUB_TLV_HEADER_TEST_MGR_NACK = 0x1,
   BR_MRP_SUB_TLV_HEADER_TEST_PROPAGATE = 0x2,
   BR_MRP_SUB_TLV_HEADER_TEST_AUTO_MGR = 0x3,
-};
-struct br_mrp_tlv_hdr {
-  __u8 type;
-  __u8 length;
-};
-struct br_mrp_sub_tlv_hdr {
-  __u8 type;
-  __u8 length;
-};
-struct br_mrp_end_hdr {
-  struct br_mrp_tlv_hdr hdr;
-};
-struct br_mrp_common_hdr {
-  __be16 seq_id;
-  __u8 domain[MRP_DOMAIN_UUID_LENGTH];
-};
-struct br_mrp_ring_test_hdr {
-  __be16 prio;
-  __u8 sa[ETH_ALEN];
-  __be16 port_role;
-  __be16 state;
-  __be16 transitions;
-  __be32 timestamp;
-};
-struct br_mrp_ring_topo_hdr {
-  __be16 prio;
-  __u8 sa[ETH_ALEN];
-  __be16 interval;
-};
-struct br_mrp_ring_link_hdr {
-  __u8 sa[ETH_ALEN];
-  __be16 port_role;
-  __be16 interval;
-  __be16 blocked;
-};
-struct br_mrp_sub_opt_hdr {
-  __u8 type;
-  __u8 manufacture_data[MRP_MANUFACTURE_DATA_LENGTH];
-};
-struct br_mrp_test_mgr_nack_hdr {
-  __be16 prio;
-  __u8 sa[ETH_ALEN];
-  __be16 other_prio;
-  __u8 other_sa[ETH_ALEN];
-};
-struct br_mrp_test_prop_hdr {
-  __be16 prio;
-  __u8 sa[ETH_ALEN];
-  __be16 other_prio;
-  __u8 other_sa[ETH_ALEN];
-};
-struct br_mrp_oui_hdr {
-  __u8 oui[MRP_OUI_LENGTH];
-};
-struct br_mrp_in_test_hdr {
-  __be16 id;
-  __u8 sa[ETH_ALEN];
-  __be16 port_role;
-  __be16 state;
-  __be16 transitions;
-  __be32 timestamp;
-};
-struct br_mrp_in_topo_hdr {
-  __u8 sa[ETH_ALEN];
-  __be16 id;
-  __be16 interval;
-};
-struct br_mrp_in_link_hdr {
-  __u8 sa[ETH_ALEN];
-  __be16 port_role;
-  __be16 id;
-  __be16 interval;
 };
 #endif

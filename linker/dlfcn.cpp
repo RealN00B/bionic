@@ -28,8 +28,9 @@
 
 #include "linker.h"
 #include "linker_cfi.h"
-#include "linker_globals.h"
+#include "linker_debuggerd.h"
 #include "linker_dlwarning.h"
+#include "linker_globals.h"
 
 #include <link.h>
 #include <pthread.h>
@@ -88,13 +89,16 @@ void* __loader_dlvsym(void* handle,
                       const void* caller_addr) __LINKER_PUBLIC__;
 void __loader_add_thread_local_dtor(void* dso_handle) __LINKER_PUBLIC__;
 void __loader_remove_thread_local_dtor(void* dso_handle) __LINKER_PUBLIC__;
+void __loader_android_set_16kb_appcompat_mode(bool enable_app_compat) __LINKER_PUBLIC__;
 libc_shared_globals* __loader_shared_globals() __LINKER_PUBLIC__;
 #if defined(__arm__)
 _Unwind_Ptr __loader_dl_unwind_find_exidx(_Unwind_Ptr pc, int* pcount) __LINKER_PUBLIC__;
 #endif
+bool __loader_android_handle_signal(int signal_number, siginfo_t* info,
+                                    void* context) __LINKER_PUBLIC__;
 }
 
-static pthread_mutex_t g_dl_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+pthread_mutex_t g_dl_mutex = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 
 static char* __bionic_set_dlerror(char* new_value) {
   char* old_value = __get_thread()->current_dlerror;
@@ -298,8 +302,17 @@ void __loader_remove_thread_local_dtor(void* dso_handle) {
   decrement_dso_handle_reference_counter(dso_handle);
 }
 
+void __loader_android_set_16kb_appcompat_mode(bool enable_app_compat) {
+  ScopedPthreadMutexLocker locker(&g_dl_mutex);
+  set_16kb_appcompat_mode(enable_app_compat);
+}
+
 libc_shared_globals* __loader_shared_globals() {
   return __libc_shared_globals();
+}
+
+bool __loader_android_handle_signal(int signal_number, siginfo_t* info, void* context) {
+  return debuggerd_handle_signal(signal_number, info, context);
 }
 
 static uint8_t __libdl_info_buf[sizeof(soinfo)] __attribute__((aligned(8)));
@@ -324,6 +337,7 @@ soinfo* get_libdl_info(const soinfo& linker_si) {
     __libdl_info->gnu_bloom_filter_ = linker_si.gnu_bloom_filter_;
     __libdl_info->gnu_bucket_ = linker_si.gnu_bucket_;
     __libdl_info->gnu_chain_ = linker_si.gnu_chain_;
+    __libdl_info->memtag_dynamic_entries_ = linker_si.memtag_dynamic_entries_;
 
     __libdl_info->ref_count_ = 1;
     __libdl_info->strtab_size_ = linker_si.strtab_size_;

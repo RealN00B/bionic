@@ -65,14 +65,14 @@ void
 /*ARGSUSED*/
 sethostent(int stayopen)
 {
-	res_static rs = __res_get_static();
+	struct res_static* rs = __res_get_static();
 	if (rs) sethostent_r(&rs->hostf);
 }
 
 void
 endhostent(void)
 {
-	res_static rs = __res_get_static();
+	struct res_static* rs = __res_get_static();
 	if (rs) endhostent_r(&rs->hostf);
 }
 
@@ -157,6 +157,7 @@ _hf_gethtbyname2(const char *name, int af, struct getnamaddr *info)
 
 	if ((ptr = buf = malloc(len = info->buflen)) == NULL) {
 		*info->he = NETDB_INTERNAL;
+		endhostent_r(&hf);
 		return NULL;
 	}
 
@@ -197,7 +198,7 @@ _hf_gethtbyname2(const char *name, int af, struct getnamaddr *info)
 				HENT_SCOPY(aliases[anum], hp->h_aliases[anum],
 				    ptr, len);
 			}
-			ptr = (void *)ALIGN(ptr);
+			ptr = __builtin_align_up(ptr, sizeof(uintptr_t));
 			if ((size_t)(ptr - buf) >= info->buflen)
 				goto nospc;
 		}
@@ -241,6 +242,7 @@ _hf_gethtbyname2(const char *name, int af, struct getnamaddr *info)
 	return hp;
 nospc:
 	*info->he = NETDB_INTERNAL;
+	endhostent_r(&hf);
 	free(buf);
 	errno = ENOSPC;
 	return NULL;

@@ -14,6 +14,11 @@
 // limitations under the License.
 //
 
+package {
+    default_team: "trendy_team_native_tools_libraries",
+    default_applicable_licenses: ["bionic_tests_license"],
+}
+
 cc_defaults {
     name: "bionic_testlib_defaults",
     host_supported: true,
@@ -25,11 +30,11 @@ cc_defaults {
         "-Wl,--rpath,${ORIGIN}",
         "-Wl,--enable-new-dtags",
     ],
+    static_libs: ["libbase"],
     relative_install_path: "bionic-loader-test-libs",
     gtest: false,
     sanitize: {
         address: false,
-        fuzzer: false,
     },
     stl: "libc++_static",
     target: {
@@ -37,6 +42,19 @@ cc_defaults {
             enabled: false,
         },
     },
+    strip: {
+        none: true,
+    },
+}
+
+// -----------------------------------------------------------------------------
+// Test library ELFs for linker page size related tests
+// -----------------------------------------------------------------------------
+cc_test_library {
+    name: "libtest_elf_max_page_size_4kib",
+    defaults: ["bionic_testlib_defaults"],
+    srcs: ["elf_max_page_size.c"],
+    ldflags: ["-z max-page-size=0x1000"],
 }
 
 // -----------------------------------------------------------------------------
@@ -46,14 +64,12 @@ cc_test_library {
     name: "libtest_elftls_shared_var",
     defaults: ["bionic_testlib_defaults"],
     srcs: ["elftls_shared_var.cpp"],
-    cflags: ["-fno-emulated-tls"],
 }
 
 cc_test_library {
     name: "libtest_elftls_shared_var_ie",
     defaults: ["bionic_testlib_defaults"],
     srcs: ["elftls_shared_var_ie.cpp"],
-    cflags: ["-fno-emulated-tls"],
     shared_libs: ["libtest_elftls_shared_var"],
 }
 
@@ -61,7 +77,6 @@ cc_test_library {
     name: "libtest_elftls_tprel",
     defaults: ["bionic_testlib_defaults"],
     srcs: ["elftls_tprel.cpp"],
-    cflags: ["-fno-emulated-tls"],
 }
 
 cc_test {
@@ -75,32 +90,27 @@ cc_test_library {
     name: "libtest_elftls_dynamic",
     defaults: ["bionic_testlib_defaults"],
     srcs: ["elftls_dynamic.cpp"],
-    cflags: ["-fno-emulated-tls"],
     shared_libs: ["libtest_elftls_shared_var"],
 }
 
 cc_test {
-   name: "thread_exit_cb_helper",
-   defaults: ["bionic_testlib_defaults"],
-   srcs: ["thread_exit_cb_helper.cpp"],
-   cflags: ["-fno-emulated-tls"],
+    name: "thread_exit_cb_helper",
+    defaults: ["bionic_testlib_defaults"],
+    srcs: ["thread_exit_cb_helper.cpp"],
 }
 
 cc_test {
-   name: "tls_properties_helper",
-   defaults: ["bionic_testlib_defaults"],
-   srcs: ["tls_properties_helper.cpp"],
-   cflags: ["-fno-emulated-tls"],
-   shared_libs: ["libtest_elftls_shared_var"],
+    name: "tls_properties_helper",
+    defaults: ["bionic_testlib_defaults"],
+    srcs: ["tls_properties_helper.cpp"],
+    shared_libs: ["libtest_elftls_shared_var"],
 }
-
 
 cc_test_library {
     name: "libtest_elftls_dynamic_filler_1",
     defaults: ["bionic_testlib_defaults"],
     srcs: ["elftls_dynamic_filler.cpp"],
     cflags: [
-        "-fno-emulated-tls",
         "-DTLS_FILLER=100",
     ],
 }
@@ -110,7 +120,6 @@ cc_test_library {
     defaults: ["bionic_testlib_defaults"],
     srcs: ["elftls_dynamic_filler.cpp"],
     cflags: [
-        "-fno-emulated-tls",
         "-DTLS_FILLER=200",
     ],
 }
@@ -120,9 +129,55 @@ cc_test_library {
     defaults: ["bionic_testlib_defaults"],
     srcs: ["elftls_dynamic_filler.cpp"],
     cflags: [
-        "-fno-emulated-tls",
         "-DTLS_FILLER=300",
     ],
+}
+
+cc_test_library {
+    name: "libtest_elftls_dynamic_filler_4",
+    defaults: ["bionic_testlib_defaults"],
+    srcs: ["elftls_dynamic_filler.cpp"],
+    cflags: [
+        "-DTLS_FILLER=400",
+    ],
+}
+
+cc_test_library {
+    name: "libtest_elftls_dynamic_filler_5",
+    defaults: ["bionic_testlib_defaults"],
+    srcs: ["elftls_dynamic_filler.cpp"],
+    cflags: [
+        "-DTLS_FILLER=500",
+    ],
+}
+
+cc_test {
+    name: "elftls_dtv_resize_helper",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only",
+    ],
+    srcs: ["elftls_dtv_resize_helper.cpp"],
+    include_dirs: [
+        "bionic/libc",
+    ],
+    static_libs: [
+        "libbase",
+    ],
+}
+
+cc_test {
+    name: "elftls_align_test_helper",
+    defaults: ["bionic_testlib_defaults"],
+    srcs: ["elftls_align_test_helper.cpp"],
+    stl: "none", // avoid including extra TLS variables in the executable
+}
+
+cc_test {
+    name: "elftls_skew_align_test_helper",
+    defaults: ["bionic_testlib_defaults"],
+    srcs: ["elftls_skew_align_test_helper.cpp"],
+    stl: "none", // avoid including extra TLS variables in the executable
 }
 
 // -----------------------------------------------------------------------------
@@ -233,6 +288,93 @@ cc_test_library {
     name: "libtest_simple",
     defaults: ["bionic_testlib_defaults"],
     srcs: ["dlopen_testlib_simple.cpp"],
+}
+
+// -----------------------------------------------------------------------------
+// Libraries and binaries used by memtag_stack_dlopen_test tests
+// -----------------------------------------------------------------------------
+cc_test_library {
+    name: "libtest_simple_memtag_stack",
+    sanitize: {
+        memtag_stack: true,
+    },
+    srcs: ["dlopen_testlib_simple.cpp"],
+}
+
+cc_test_library {
+    name: "libtest_depends_on_simple_memtag_stack",
+    sanitize: {
+        memtag_stack: false,
+    },
+    shared_libs: [
+        "libtest_simple_memtag_stack",
+    ],
+    srcs: ["dlopen_testlib_depends_on_simple.cpp"],
+}
+
+cc_binary {
+    name: "testbinary_is_stack_mte_after_dlopen",
+    sanitize: {
+        memtag_stack: false,
+        memtag_heap: true,
+    },
+    srcs: ["testbinary_is_stack_mte_after_dlopen.cpp"],
+}
+
+cc_binary {
+    name: "testbinary_depends_on_simple_memtag_stack",
+    sanitize: {
+        memtag_stack: false,
+        memtag_heap: true,
+    },
+    shared_libs: [
+        "libtest_simple_memtag_stack",
+    ],
+    srcs: ["testbinary_is_stack_mte.cpp"],
+}
+
+cc_binary {
+    name: "testbinary_depends_on_depends_on_simple_memtag_stack",
+    sanitize: {
+        memtag_stack: false,
+        memtag_heap: true,
+    },
+    shared_libs: [
+        "libtest_depends_on_simple_memtag_stack",
+    ],
+    srcs: ["testbinary_is_stack_mte.cpp"],
+}
+
+// -----------------------------------------------------------------------------
+// Libraries used by hwasan_test
+// -----------------------------------------------------------------------------
+cc_test_library {
+    name: "libtest_simple_hwasan",
+    arch: {
+        arm64: {
+            enabled: true,
+        },
+    },
+    sanitize: {
+        hwaddress: true,
+    },
+    relative_install_path: "hwasan",
+    enabled: false,
+    srcs: ["dlopen_testlib_simple_hwasan.cpp"],
+}
+
+cc_test_library {
+    // A weird name. This is the vanilla (non-HWASan) copy of the library that
+    // is used for the hwasan test.
+    name: "libtest_simple_hwasan_nohwasan",
+    arch: {
+        arm64: {
+            enabled: true,
+        },
+    },
+    stem: "libtest_simple_hwasan",
+    enabled: false,
+    srcs: ["dlopen_testlib_simple_hwasan.cpp"],
 }
 
 // -----------------------------------------------------------------------------
@@ -606,7 +748,6 @@ cc_test_library {
     ],
     sanitize: {
         address: false,
-        fuzzer: false,
     },
     stl: "libc++_static",
     target: {
@@ -1177,14 +1318,6 @@ cc_test_library {
     defaults: ["bionic_testlib_defaults"],
     srcs: ["dl_df_1_global.cpp"],
     ldflags: ["-Wl,-z,global"],
-
-    target: {
-        host: {
-            // TODO (dimitry): host ld.gold does not yet support -z global
-            // remove this line once it is updated.
-            ldflags: ["-fuse-ld=bfd"],
-        },
-    },
 }
 
 // -----------------------------------------------------------------------------
@@ -1205,14 +1338,6 @@ cc_test_library {
     defaults: ["bionic_testlib_defaults"],
     srcs: ["dl_df_1_global_dummy.cpp"],
     ldflags: ["-Wl,-z,global"],
-
-    target: {
-        host: {
-            // TODO (dimitry): host ld.gold does not yet support -z global
-            // remove this line once it is updated.
-            ldflags: ["-fuse-ld=bfd"],
-        },
-    },
 }
 
 // -----------------------------------------------------------------------------
@@ -1479,7 +1604,7 @@ cc_test_library {
     shared_libs: ["ld_config_test_helper_lib2"],
     relative_install_path: "bionic-loader-test-libs/ns2",
     // Mark the library DF_1_GLOBAL so it is added to every linker namespace.
-    ldflags: ["-Wl,-z,global"]
+    ldflags: ["-Wl,-z,global"],
 }
 
 cc_test_library {
@@ -1528,7 +1653,6 @@ cc_test_library {
     srcs: ["segment_gap_inner.cpp"],
 }
 
-
 // -----------------------------------------------------------------------------
 // Check that we support all kinds of relocations: regular, "relocation packer",
 // and both the old and new SHT_RELR constants.
@@ -1544,12 +1668,6 @@ cc_test_library {
     host_supported: false,
     defaults: ["bionic_testlib_defaults"],
     srcs: ["relocations.cpp"],
-
-    // Hack to ensure we're using llvm-objcopy because our binutils prebuilt
-    // only supports the old numbers (http://b/141010852).
-    strip: {
-      keep_symbols: true,
-    },
 }
 
 // This is the same encoding as SHT_RELR, but using OS-specific constants.
@@ -1583,83 +1701,291 @@ cc_test_library {
 }
 
 cc_defaults {
-  name: "bionic_targets_only",
-  enabled: false,
-  target: {
-     android: {
-       enabled: true,
-     },
-     linux_bionic: {
-       enabled: true,
-     },
-   },
+    name: "bionic_targets_only",
+    enabled: false,
+    target: {
+        android: {
+            enabled: true,
+        },
+        linux_bionic: {
+            enabled: true,
+        },
+    },
 }
 
 cc_test {
-   name: "heap_tagging_sync_helper",
-   defaults: ["bionic_testlib_defaults", "bionic_targets_only"],
-   srcs: ["heap_tagging_helper.cpp"],
-   sanitize: {
-     memtag_heap: true,
-     diag: {
-       memtag_heap: true,
-     },
-   },
+    name: "heap_tagging_sync_helper",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only",
+    ],
+    srcs: ["heap_tagging_helper.cpp"],
+    sanitize: {
+        memtag_heap: true,
+        diag: {
+            memtag_heap: true,
+        },
+        hwaddress: false,
+    },
 }
 
 cc_test {
-   name: "heap_tagging_async_helper",
-   defaults: ["bionic_testlib_defaults", "bionic_targets_only"],
-   srcs: ["heap_tagging_helper.cpp"],
-   sanitize: {
-     memtag_heap: true,
-     diag: {
-       memtag_heap: false,
-     },
-   },
+    name: "heap_tagging_async_helper",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only",
+    ],
+    srcs: ["heap_tagging_helper.cpp"],
+    sanitize: {
+        memtag_heap: true,
+        diag: {
+            memtag_heap: false,
+        },
+        hwaddress: false,
+    },
 }
 
 cc_test {
-   name: "heap_tagging_disabled_helper",
-   defaults: ["bionic_testlib_defaults", "bionic_targets_only"],
-   srcs: ["heap_tagging_helper.cpp"],
-   sanitize: {
-     memtag_heap: false,
-   },
+    name: "heap_tagging_disabled_helper",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only",
+    ],
+    srcs: ["heap_tagging_helper.cpp"],
+    sanitize: {
+        memtag_heap: false,
+        hwaddress: false,
+    },
 }
 
 cc_test {
-   name: "heap_tagging_static_sync_helper",
-   defaults: ["bionic_testlib_defaults", "bionic_targets_only"],
-   srcs: ["heap_tagging_helper.cpp"],
-   static_executable: true,
-   sanitize: {
-     memtag_heap: true,
-     diag: {
-       memtag_heap: true,
-     },
-   },
+    name: "heap_tagging_static_sync_helper",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only",
+    ],
+    srcs: ["heap_tagging_helper.cpp"],
+    static_executable: true,
+    sanitize: {
+        memtag_heap: true,
+        diag: {
+            memtag_heap: true,
+        },
+        hwaddress: false,
+    },
 }
 
 cc_test {
-   name: "heap_tagging_static_async_helper",
-   defaults: ["bionic_testlib_defaults", "bionic_targets_only"],
-   srcs: ["heap_tagging_helper.cpp"],
-   static_executable: true,
-   sanitize: {
-     memtag_heap: true,
-     diag: {
-       memtag_heap: false,
-     },
-   },
+    name: "heap_tagging_static_async_helper",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only",
+    ],
+    srcs: ["heap_tagging_helper.cpp"],
+    static_executable: true,
+    sanitize: {
+        memtag_heap: true,
+        diag: {
+            memtag_heap: false,
+        },
+        hwaddress: false,
+    },
 }
 
 cc_test {
-   name: "heap_tagging_static_disabled_helper",
-   defaults: ["bionic_testlib_defaults", "bionic_targets_only"],
-   srcs: ["heap_tagging_helper.cpp"],
-   static_executable: true,
-   sanitize: {
-     memtag_heap: false,
-   },
+    name: "heap_tagging_static_disabled_helper",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only",
+    ],
+    srcs: ["heap_tagging_helper.cpp"],
+    static_executable: true,
+    sanitize: {
+        memtag_heap: false,
+        hwaddress: false,
+    },
+}
+
+cc_test {
+    name: "stack_tagging_helper",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only",
+    ],
+    srcs: ["stack_tagging_helper.cpp"],
+    sanitize: {
+        memtag_heap: true,
+        memtag_stack: true,
+        diag: {
+            memtag_heap: true,
+        },
+        hwaddress: false,
+    },
+    header_libs: ["bionic_libc_platform_headers"],
+    cflags: ["-fexceptions"],
+}
+
+cc_test {
+    name: "stack_tagging_static_helper",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only",
+    ],
+    srcs: ["stack_tagging_helper.cpp"],
+    static_executable: true,
+    sanitize: {
+        memtag_heap: true,
+        memtag_stack: true,
+        diag: {
+            memtag_heap: true,
+        },
+        hwaddress: false,
+    },
+    header_libs: ["bionic_libc_platform_headers"],
+    cflags: ["-fexceptions"],
+}
+
+cc_genrule {
+    name: "libdlext_test_zip_zipaligned",
+    out: ["bionic-loader-test-libs/libdlext_test_zip/libdlext_test_zip_zipaligned.zip"],
+    tools: [
+        "soong_zip",
+        "bionic_tests_zipalign",
+    ],
+    srcs: [
+        ":libdlext_test_zip",
+        ":libatest_simple_zip",
+        ":exec_linker_helper",
+        ":exec_linker_helper_lib",
+    ],
+    cmd: "mkdir -p $(genDir)/zipdir/libdir &&" +
+        " cp $(in) $(genDir)/zipdir/libdir/ &&" +
+        " touch $(genDir)/zipdir/empty_file.txt &&" +
+        " $(location soong_zip) -o $(out).unaligned -L 0 -C $(genDir)/zipdir -D $(genDir)/zipdir &&" +
+        " $(location bionic_tests_zipalign) 16384 $(out).unaligned $(out)",
+
+}
+
+cc_genrule {
+    name: "libdlext_test_runpath_zip_zipaligned",
+    out: ["bionic-loader-test-libs/libdlext_test_runpath_zip/libdlext_test_runpath_zip_zipaligned.zip"],
+    tools: [
+        "soong_zip",
+        "bionic_tests_zipalign",
+    ],
+    srcs: [
+        ":libtest_dt_runpath_d_zip",
+        ":libtest_dt_runpath_a",
+        ":libtest_dt_runpath_b",
+        ":libtest_dt_runpath_c",
+        ":libtest_dt_runpath_x",
+        ":libtest_dt_runpath_y",
+    ],
+    cmd: "mkdir -p $(genDir)/zipdir/libdir &&" +
+        " if [[ \"$$CC_MULTILIB\" = lib32 ]]; then" +
+        "  PRIVATE_LIB_OR_LIB64=lib;" +
+        " else" +
+        "  PRIVATE_LIB_OR_LIB64=lib64;" +
+        " fi &&" +
+        " if [[ -n \"$$CC_NATIVE_BRIDGE\" ]]; then" +
+        "  PRIVATE_LIB_OR_LIB64=$$PRIVATE_LIB_OR_LIB64/$$CC_NATIVE_BRIDGE;" +
+        " fi &&" +
+        " mkdir -p $(genDir)/zipdir/libdir/dt_runpath_a &&" +
+        " mkdir -p $(genDir)/zipdir/libdir/dt_runpath_b_c_x &&" +
+        " mkdir -p $(genDir)/zipdir/libdir/dt_runpath_y/$$PRIVATE_LIB_OR_LIB64 &&" +
+        " cp $(location :libtest_dt_runpath_d_zip) $(genDir)/zipdir/libdir &&" +
+        " cp $(location :libtest_dt_runpath_a) $(genDir)/zipdir/libdir/dt_runpath_a &&" +
+        " cp $(location :libtest_dt_runpath_b) $(genDir)/zipdir/libdir/dt_runpath_b_c_x &&" +
+        " cp $(location :libtest_dt_runpath_c) $(genDir)/zipdir/libdir/dt_runpath_b_c_x &&" +
+        " cp $(location :libtest_dt_runpath_x) $(genDir)/zipdir/libdir/dt_runpath_b_c_x &&" +
+        " cp $(location :libtest_dt_runpath_y) $(genDir)/zipdir/libdir/dt_runpath_y/$$PRIVATE_LIB_OR_LIB64 &&" +
+        " touch $(genDir)/zipdir/empty_file.txt &&" +
+        " $(location soong_zip) -o $(out).unaligned -L 0 -C $(genDir)/zipdir -D $(genDir)/zipdir &&" +
+        " $(location bionic_tests_zipalign) 16384 $(out).unaligned $(out)",
+}
+
+cc_defaults {
+    name: "memtag_globals_defaults",
+    defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only"
+    ],
+    cflags: [
+        "-Wno-array-bounds",
+        "-Wno-unused-variable",
+    ],
+    header_libs: ["bionic_libc_platform_headers"],
+    sanitize: {
+        hwaddress: false,
+        memtag_heap: true,
+        memtag_globals: true,
+        diag: {
+            memtag_heap: true,
+        }
+    },
+}
+
+cc_test_library {
+    name: "memtag_globals_dso",
+    defaults: [ "memtag_globals_defaults" ],
+    srcs: ["memtag_globals_dso.cpp"],
+}
+
+cc_test {
+    name: "memtag_globals_binary",
+    defaults: [ "memtag_globals_defaults" ],
+    srcs: ["memtag_globals_binary.cpp"],
+    shared_libs: [ "memtag_globals_dso" ],
+    // This binary is used in the bionic-unit-tests as a data dependency, and is
+    // in the same folder as memtag_globals_dso. But, the default cc_test rules
+    // make this binary (when just explicitly built and shoved in
+    // /data/nativetest64/) end up in a subfolder called
+    // 'memtag_globals_binary'. When this happens, the explicit build fails to
+    // find the DSO because the default rpath is just ${ORIGIN}, and because we
+    // want this to be usable both from bionic-unit-tests and explicit builds,
+    // let's just not put it in a subdirectory.
+    no_named_install_directory: true,
+}
+
+cc_test {
+    name: "memtag_globals_binary_static",
+    defaults: [ "memtag_globals_defaults" ],
+    srcs: ["memtag_globals_binary.cpp"],
+    static_libs: [ "memtag_globals_dso" ],
+    no_named_install_directory: true,
+    static_executable: true,
+}
+
+// This is a regression test for b/314038442, where binaries built *without* MTE
+// globals would have out-of-bounds RELR relocations, which where then `ldg`'d,
+// which resulted in linker crashes.
+cc_test {
+  name: "mte_globals_relr_regression_test_b_314038442",
+  defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only"
+    ],
+    cflags: [ "-Wno-array-bounds" ],
+    ldflags: [ "-Wl,--pack-dyn-relocs=relr" ],
+    srcs: ["mte_globals_relr_regression_test_b_314038442.cpp"],
+    no_named_install_directory: true,
+    sanitize: {
+        memtag_globals: false,
+    },
+}
+
+// Same test as above, but also for MTE globals, just for the sake of it.
+cc_test {
+  name: "mte_globals_relr_regression_test_b_314038442_mte",
+  defaults: [
+        "bionic_testlib_defaults",
+        "bionic_targets_only"
+    ],
+    cflags: [ "-Wno-array-bounds" ],
+    ldflags: [ "-Wl,--pack-dyn-relocs=relr" ],
+    srcs: ["mte_globals_relr_regression_test_b_314038442.cpp"],
+    no_named_install_directory: true,
+    sanitize: {
+      memtag_globals: true,
+    },
 }

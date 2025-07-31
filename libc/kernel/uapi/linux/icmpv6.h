@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI_LINUX_ICMPV6_H
 #define _UAPI_LINUX_ICMPV6_H
 #include <linux/types.h>
@@ -93,6 +81,7 @@ struct icmp6hdr {
 #define ICMPV6_MOBILE_PREFIX_SOL 146
 #define ICMPV6_MOBILE_PREFIX_ADV 147
 #define ICMPV6_MRDISC_ADV 151
+#define ICMPV6_MRDISC_SOL 152
 #define ICMPV6_MSG_MAX 255
 #define ICMPV6_NOROUTE 0
 #define ICMPV6_ADM_PROHIBITED 1
@@ -107,6 +96,8 @@ struct icmp6hdr {
 #define ICMPV6_UNK_NEXTHDR 1
 #define ICMPV6_UNK_OPTION 2
 #define ICMPV6_HDR_INCOMP 3
+#define ICMPV6_EXT_ECHO_REQUEST 160
+#define ICMPV6_EXT_ECHO_REPLY 161
 #define ICMPV6_FILTER 1
 #define ICMPV6_FILTER_BLOCK 1
 #define ICMPV6_FILTER_PASS 2

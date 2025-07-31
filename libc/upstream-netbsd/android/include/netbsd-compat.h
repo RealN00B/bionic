@@ -17,7 +17,7 @@
 #pragma once
 
 #define _BSD_SOURCE
-#define _GNU_SOURCE
+#define _GNU_SOURCE 1
 
 // NetBSD uses _DIAGASSERT to null-check arguments and the like,
 // but it's clear from the number of mistakes in their assertions
@@ -42,6 +42,8 @@
 #include <sys/cdefs.h>
 #include <stddef.h>
 int reallocarr(void*, size_t, size_t);
+
+#define __arraycount(a) (sizeof(a) / sizeof(a[0]))
 
 /* Use appropriate shell depending on process's executable. */
 __LIBC_HIDDEN__ extern const char* __bionic_get_shell_path();

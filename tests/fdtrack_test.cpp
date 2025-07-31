@@ -28,6 +28,8 @@
 #include <unistd.h>
 
 #if defined(__BIONIC__)
+#include <sys/pidfd.h>
+
 #include "platform/bionic/fdtrack.h"
 #include "platform/bionic/reserved_signals.h"
 #endif
@@ -37,6 +39,8 @@
 #include <android-base/cmsg.h>
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
+
+#include "utils.h"
 
 using android::base::ReceiveFileDescriptors;
 using android::base::SendFileDescriptors;
@@ -55,16 +59,18 @@ void DumpEvent(std::vector<android_fdtrack_event>* events, size_t index) {
   }
 }
 
-std::vector<android_fdtrack_event> FdtrackRun(void (*func)()) {
+std::vector<android_fdtrack_event> FdtrackRun(void (*func)(), bool reenable = true) {
   // Each bionic test is run in separate process, so we can safely use a static here.
+  // However, since they're all forked, we need to reenable fdtrack.
+  if (reenable) {
+    android_fdtrack_set_globally_enabled(true);
+  }
+
   static std::vector<android_fdtrack_event> events;
   events.clear();
 
   android_fdtrack_hook_t previous = nullptr;
-  android_fdtrack_hook_t hook = [](android_fdtrack_event* event) {
-    raise(BIONIC_SIGNAL_DEBUGGER);
-    events.push_back(*event);
-  };
+  android_fdtrack_hook_t hook = [](android_fdtrack_event* event) { events.push_back(*event); };
 
   if (!android_fdtrack_compare_exchange_hook(&previous, hook)) {
     errx(1, "failed to exchange hook: previous hook was %p", previous);
@@ -130,6 +136,21 @@ TEST(fdtrack, close) {
 #endif
 }
 
+TEST(fdtrack, fork) {
+#if defined(__BIONIC__)
+  ASSERT_EXIT(
+      []() {
+        static int fd = open("/dev/null", O_WRONLY | O_CLOEXEC);
+        ASSERT_NE(-1, fd);
+
+        auto events = FdtrackRun([]() { close(fd); }, false);
+        ASSERT_EQ(0U, events.size());
+        exit(0);
+      }(),
+      testing::ExitedWithCode(0), "");
+#endif
+}
+
 TEST(fdtrack, enable_disable) {
 #if defined(__BIONIC__)
   static int fd1 = -1;
@@ -179,7 +200,7 @@ void SetFdResult(std::vector<int>* output, std::vector<int> fds) {
     static std::vector<int> expected_fds;                                                        \
     auto events = FdtrackRun([]() { SetFdResult(&expected_fds, expression); });                  \
     for (auto& fd : expected_fds) {                                                              \
-      ASSERT_NE(-1, fd);                                                                         \
+      ASSERT_NE(-1, fd) << strerror(errno);                                                      \
     }                                                                                            \
     if (events.size() != expected_fds.size()) {                                                  \
       fprintf(stderr, "too many events received: expected %zu, got %zu:\n", expected_fds.size(), \
@@ -211,6 +232,32 @@ void SetFdResult(std::vector<int>* output, std::vector<int> fds) {
 FDTRACK_TEST(open, open("/dev/null", O_WRONLY | O_CLOEXEC));
 FDTRACK_TEST(openat, openat(AT_EMPTY_PATH, "/dev/null", O_WRONLY | O_CLOEXEC));
 FDTRACK_TEST(socket, socket(AF_UNIX, SOCK_STREAM, 0));
+
+FDTRACK_TEST(pidfd_open, ({
+  int rc = pidfd_open(getpid(), 0);
+  if (rc == -1 && errno == ENOSYS) GTEST_SKIP() << "no pidfd_open() in this kernel";
+  ASSERT_NE(-1, rc) << strerror(errno);
+  rc;
+}));
+
+FDTRACK_TEST(pidfd_getfd, ({
+  android_fdtrack_set_enabled(false);
+  int pidfd_self = pidfd_open(getpid(), 0);
+  if (pidfd_self == -1 && errno == ENOSYS) GTEST_SKIP() << "no pidfd_open() in this kernel";
+  ASSERT_NE(-1, pidfd_self) << strerror(errno);
+
+  android_fdtrack_set_enabled(true);
+
+  int rc = pidfd_getfd(pidfd_self, STDIN_FILENO, 0);
+  if (rc == -1 && errno == ENOSYS) GTEST_SKIP() << "no pidfd_getfd() in this kernel";
+  ASSERT_NE(-1, rc) << strerror(errno);
+
+  android_fdtrack_set_enabled(false);
+  close(pidfd_self);
+  android_fdtrack_set_enabled(true);
+
+  rc;
+}));
 
 FDTRACK_TEST(dup, dup(STDOUT_FILENO));
 FDTRACK_TEST(dup2, dup2(STDOUT_FILENO, STDERR_FILENO));

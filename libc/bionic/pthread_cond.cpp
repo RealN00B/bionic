@@ -140,10 +140,10 @@ int pthread_cond_init(pthread_cond_t* cond_interface, const pthread_condattr_t* 
   if (attr != nullptr) {
     init_state = (*attr & COND_FLAGS_MASK);
   }
-  atomic_init(&cond->state, init_state);
+  atomic_store_explicit(&cond->state, init_state, memory_order_relaxed);
 
 #if defined(__LP64__)
-  atomic_init(&cond->waiters, 0);
+  atomic_store_explicit(&cond->waiters, 0, memory_order_relaxed);
 #endif
 
   return 0;
@@ -249,15 +249,18 @@ int pthread_cond_clockwait(pthread_cond_t* cond_interface, pthread_mutex_t* mute
 }
 
 #if !defined(__LP64__)
-// TODO: this exists only for backward binary compatibility on 32 bit platforms.
+// This exists only for backward binary compatibility on 32 bit platforms.
+// (This is actually a _new_ function in API 28 that we could only implement for LP64.)
 extern "C" int pthread_cond_timedwait_monotonic(pthread_cond_t* cond_interface,
                                                 pthread_mutex_t* mutex,
                                                 const timespec* abs_timeout) {
   return pthread_cond_timedwait_monotonic_np(cond_interface, mutex, abs_timeout);
 }
+#endif
 
-// Force this function using CLOCK_MONOTONIC because it was always using
-// CLOCK_MONOTONIC in history.
+#if !defined(__LP64__)
+// This exists only for backward binary compatibility on 32 bit platforms.
+// (This function never existed for LP64.)
 extern "C" int pthread_cond_timedwait_relative_np(pthread_cond_t* cond_interface,
                                                   pthread_mutex_t* mutex,
                                                   const timespec* rel_timeout) {
@@ -269,11 +272,15 @@ extern "C" int pthread_cond_timedwait_relative_np(pthread_cond_t* cond_interface
   }
   return __pthread_cond_timedwait(__get_internal_cond(cond_interface), mutex, false, abs_timeout);
 }
+#endif
 
+#if !defined(__LP64__)
+// This exists only for backward binary compatibility on 32 bit platforms.
+// (This function never existed for LP64.)
 extern "C" int pthread_cond_timeout_np(pthread_cond_t* cond_interface,
                                        pthread_mutex_t* mutex, unsigned ms) {
   timespec ts;
   timespec_from_ms(ts, ms);
   return pthread_cond_timedwait_relative_np(cond_interface, mutex, &ts);
 }
-#endif // !defined(__LP64__)
+#endif

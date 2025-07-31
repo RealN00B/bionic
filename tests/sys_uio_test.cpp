@@ -16,9 +16,15 @@
 
 #include <gtest/gtest.h>
 
+#include <errno.h>
+#include <string.h>
+#include <sys/types.h>
 #include <sys/uio.h>
+#include <unistd.h>
 
 #include <android-base/file.h>
+
+#include "utils.h"
 
 TEST(sys_uio, readv_writev) {
   TemporaryFile tf;
@@ -68,6 +74,42 @@ TEST(sys_uio, preadv64_pwritev64) {
   TestPreadVPwriteV(preadv64, pwritev64);
 }
 
+template <typename ReadFn, typename WriteFn>
+void TestPreadV2PwriteV2(ReadFn read_fn, WriteFn write_fn) {
+  TemporaryFile tf;
+
+  char buf[] = "world";
+  iovec ios[] = {{buf, 5}};
+
+  ASSERT_EQ(5, write_fn(tf.fd, ios, 1, 5, 0)) << strerror(errno);
+  ASSERT_EQ(0, lseek(tf.fd, 0, SEEK_CUR));
+
+  strcpy(buf, "hello");
+  ASSERT_EQ(5, write_fn(tf.fd, ios, 1, 0, 0)) << strerror(errno);
+  ASSERT_EQ(0, lseek(tf.fd, 0, SEEK_CUR));
+
+  ASSERT_EQ(5, read_fn(tf.fd, ios, 1, 5, 0)) << strerror(errno);
+  ASSERT_STREQ("world", buf);
+  ASSERT_EQ(5, read_fn(tf.fd, ios, 1, 0, 0)) << strerror(errno);
+  ASSERT_STREQ("hello", buf);
+}
+
+TEST(sys_uio, preadv2_pwritev2) {
+#if defined(__BIONIC__)
+  TestPreadV2PwriteV2(preadv2, pwritev2);
+#else
+  GTEST_SKIP() << "preadv2/pwritev2 not available";
+#endif
+}
+
+TEST(sys_uio, preadv64v2_pwritev64v2) {
+#if defined(__BIONIC__)
+  TestPreadV2PwriteV2(preadv64v2, pwritev64v2);
+#else
+  GTEST_SKIP() << "preadv2/pwritev2 not available";
+#endif
+}
+
 TEST(sys_uio, process_vm_readv) {
   ASSERT_EQ(0, process_vm_readv(0, nullptr, 0, nullptr, 0, 0));
 
@@ -83,8 +125,9 @@ TEST(sys_uio, process_vm_readv) {
 
   // Reading from non-allocated memory should return an error
   remote = { nullptr, sizeof dst };
+  errno = 0;
   ASSERT_EQ(-1, process_vm_readv(getpid(), &local, 1, &remote, 1, 0));
-  ASSERT_EQ(EFAULT, errno);
+  ASSERT_ERRNO(EFAULT);
 }
 
 TEST(sys_uio, process_vm_writev) {
@@ -102,6 +145,7 @@ TEST(sys_uio, process_vm_writev) {
 
   // Writing to non-allocated memory should return an error
   remote = { nullptr, sizeof dst };
+  errno = 0;
   ASSERT_EQ(-1, process_vm_writev(getpid(), &local, 1, &remote, 1, 0));
-  ASSERT_EQ(EFAULT, errno);
+  ASSERT_ERRNO(EFAULT);
 }

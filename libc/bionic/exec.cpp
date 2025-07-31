@@ -39,8 +39,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "private/__bionic_get_shell_path.h"
 #include "private/FdPath.h"
+#include "private/__bionic_get_shell_path.h"
 
 extern "C" char** environ;
 

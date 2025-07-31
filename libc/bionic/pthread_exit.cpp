@@ -33,10 +33,11 @@
 #include <string.h>
 #include <sys/mman.h>
 
-#include "private/bionic_constants.h"
-#include "private/bionic_defs.h"
+#include "platform/bionic/mte.h"
 #include "private/ScopedRWLock.h"
 #include "private/ScopedSignalBlocker.h"
+#include "private/bionic_constants.h"
+#include "private/bionic_defs.h"
 #include "pthread_internal.h"
 
 extern "C" __noreturn void _exit_with_stack_teardown(void*, size_t);
@@ -67,7 +68,7 @@ void __pthread_cleanup_pop(__pthread_cleanup_t* c, int execute) {
 }
 
 __BIONIC_WEAK_FOR_NATIVE_BRIDGE
-void pthread_exit(void* return_value) {
+__attribute__((no_sanitize("memtag"))) void pthread_exit(void* return_value) {
   // Call dtors for thread_local objects first.
   __cxa_thread_finalize();
 
@@ -117,7 +118,7 @@ void pthread_exit(void* return_value) {
     __rt_sigprocmask(SIG_BLOCK, &set, nullptr, sizeof(sigset64_t));
   }
 
-#ifdef __aarch64__
+#if defined(__aarch64__) || defined(__riscv)
   // Free the shadow call stack and guard pages.
   munmap(thread->shadow_call_stack_guard_region, SCS_GUARD_REGION_SIZE);
 #endif
@@ -133,20 +134,24 @@ void pthread_exit(void* return_value) {
 
     // pthread_internal_t is freed below with stack, not here.
     __pthread_internal_remove(thread);
-
-    if (thread->mmap_size != 0) {
-      // We need to free mapped space for detached threads when they exit.
-      // That's not something we can do in C.
-      __notify_thread_exit_callbacks();
-      __hwasan_thread_exit();
-      _exit_with_stack_teardown(thread->mmap_base, thread->mmap_size);
-    }
   }
 
-  // No need to free mapped space. Either there was no space mapped, or it is left for
-  // the pthread_join caller to clean up.
   __notify_thread_exit_callbacks();
   __hwasan_thread_exit();
 
+#if defined(__aarch64__)
+  if (void* stack_mte_tls = thread->bionic_tcb->tls_slot(TLS_SLOT_STACK_MTE)) {
+    stack_mte_free_ringbuffer(reinterpret_cast<uintptr_t>(stack_mte_tls));
+  }
+#endif
+  // Everything below this line needs to be no_sanitize("memtag").
+
+  if (old_state == THREAD_DETACHED && thread->mmap_size != 0) {
+    // We need to free mapped space for detached threads when they exit.
+    // That's not something we can do in C.
+    _exit_with_stack_teardown(thread->mmap_base, thread->mmap_size);
+  }
+  // No need to free mapped space. Either there was no space mapped,
+  // or it is left for the pthread_join caller to clean up.
   __exit(0);
 }

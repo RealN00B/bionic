@@ -25,8 +25,6 @@
 
 #include <sys/random.h> // For getentropy.
 
-#include "private/bsd_sys_param.h"
-
 #define __BEGIN_HIDDEN_DECLS _Pragma("GCC visibility push(hidden)")
 #define __END_HIDDEN_DECLS _Pragma("GCC visibility pop")
 
@@ -42,22 +40,13 @@ extern const char* __progname;
 
 #define PROTO_NORMAL(x)
 
-/* OpenBSD's <ctype.h> uses these names, which conflicted with stlport.
- * Additionally, we changed the numeric/digit type from N to D for libcxx.
- */
-#define _U _CTYPE_U
-#define _L _CTYPE_L
-#define _N _CTYPE_D
-#define _S _CTYPE_S
-#define _P _CTYPE_P
-#define _C _CTYPE_C
-#define _X _CTYPE_X
-#define _B _CTYPE_B
+#if !defined(ANDROID_HOST_MUSL)
+#define explicit_bzero(p, s) memset_explicit(p, 0, s)
+#endif
 
-/* OpenBSD has this, but we can't really implement it correctly on Linux. */
-#define issetugid() 0
-
-#define explicit_bzero(p, s) memset(p, 0, s)
+#if defined(ANDROID_HOST_MUSL)
+#define __LIBC_HIDDEN__ __attribute__((visibility("hidden")))
+#endif
 
 /* OpenBSD has this in paths.h. But this directory doesn't normally exist.
  * Even when it does exist, only the 'shell' user has permissions.

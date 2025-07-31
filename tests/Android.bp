@@ -14,6 +14,23 @@
 // limitations under the License.
 //
 
+package {
+    default_team: "trendy_team_native_tools_libraries",
+    default_applicable_licenses: ["bionic_tests_license"],
+}
+
+license {
+    name: "bionic_tests_license",
+    visibility: [":__subpackages__"],
+    license_kinds: [
+        "SPDX-license-identifier-Apache-2.0",
+        "SPDX-license-identifier-BSD",
+    ],
+    license_text: [
+        "NOTICE",
+    ],
+}
+
 cc_defaults {
     name: "bionic_tests_defaults",
     host_supported: true,
@@ -43,22 +60,27 @@ cc_defaults {
         // Needed to test pthread_internal_t layout.
         "-Wno-invalid-offsetof",
 
-        // For glibc.
-        "-D__STDC_LIMIT_MACROS",
+        // This warning does not provide any benefit to the tests.
+        "-Wno-reorder-init-list",
     ],
-    header_libs: ["libcutils_headers"],
-    // Ensure that the tests exercise shadow call stack support and
-    // the hint space PAC/BTI instructions.
+    header_libs: [
+        "libcutils_headers",
+        "gwp_asan_headers",
+    ],
+    stl: "libc++",
+
+    // Ensure that the tests exercise shadow call stack support.
+    // We don't use `scs: true` here because that would give us a second
+    // variant of this library where we actually just want to say "this
+    // library should always be built this way".
     arch: {
         arm64: {
-            cflags: [
-                "-fsanitize=shadow-call-stack",
-                // Disable this option for now: see b/151372823
-                //"-mbranch-protection=standard",
-            ],
+            cflags: ["-fsanitize=shadow-call-stack"],
+        },
+        riscv64: {
+            cflags: ["-fsanitize=shadow-call-stack"],
         },
     },
-    stl: "libc++",
     sanitize: {
         address: false,
     },
@@ -86,6 +108,9 @@ cc_prebuilt_test_library_shared {
         arm64: {
             srcs: ["prebuilt-elf-files/arm64/libtest_invalid-rw_load_segment.so"],
         },
+        riscv64: {
+            srcs: ["prebuilt-elf-files/riscv64/libtest_invalid-rw_load_segment.so"],
+        },
         x86: {
             srcs: ["prebuilt-elf-files/x86/libtest_invalid-rw_load_segment.so"],
         },
@@ -108,6 +133,9 @@ cc_prebuilt_test_library_shared {
         },
         arm64: {
             srcs: ["prebuilt-elf-files/arm64/libtest_invalid-unaligned_shdr_offset.so"],
+        },
+        riscv64: {
+            srcs: ["prebuilt-elf-files/riscv64/libtest_invalid-unaligned_shdr_offset.so"],
         },
         x86: {
             srcs: ["prebuilt-elf-files/x86/libtest_invalid-unaligned_shdr_offset.so"],
@@ -132,6 +160,9 @@ cc_prebuilt_test_library_shared {
         arm64: {
             srcs: ["prebuilt-elf-files/arm64/libtest_invalid-zero_shentsize.so"],
         },
+        riscv64: {
+            srcs: ["prebuilt-elf-files/riscv64/libtest_invalid-zero_shentsize.so"],
+        },
         x86: {
             srcs: ["prebuilt-elf-files/x86/libtest_invalid-zero_shentsize.so"],
         },
@@ -154,6 +185,9 @@ cc_prebuilt_test_library_shared {
         },
         arm64: {
             srcs: ["prebuilt-elf-files/arm64/libtest_invalid-zero_shstrndx.so"],
+        },
+        riscv64: {
+            srcs: ["prebuilt-elf-files/riscv64/libtest_invalid-zero_shstrndx.so"],
         },
         x86: {
             srcs: ["prebuilt-elf-files/x86/libtest_invalid-zero_shstrndx.so"],
@@ -178,6 +212,9 @@ cc_prebuilt_test_library_shared {
         arm64: {
             srcs: ["prebuilt-elf-files/arm64/libtest_invalid-empty_shdr_table.so"],
         },
+        riscv64: {
+            srcs: ["prebuilt-elf-files/riscv64/libtest_invalid-empty_shdr_table.so"],
+        },
         x86: {
             srcs: ["prebuilt-elf-files/x86/libtest_invalid-empty_shdr_table.so"],
         },
@@ -200,6 +237,9 @@ cc_prebuilt_test_library_shared {
         },
         arm64: {
             srcs: ["prebuilt-elf-files/arm64/libtest_invalid-zero_shdr_table_offset.so"],
+        },
+        riscv64: {
+            srcs: ["prebuilt-elf-files/riscv64/libtest_invalid-zero_shdr_table_offset.so"],
         },
         x86: {
             srcs: ["prebuilt-elf-files/x86/libtest_invalid-zero_shdr_table_offset.so"],
@@ -224,6 +264,9 @@ cc_prebuilt_test_library_shared {
         arm64: {
             srcs: ["prebuilt-elf-files/arm64/libtest_invalid-zero_shdr_table_content.so"],
         },
+        riscv64: {
+            srcs: ["prebuilt-elf-files/riscv64/libtest_invalid-zero_shdr_table_content.so"],
+        },
         x86: {
             srcs: ["prebuilt-elf-files/x86/libtest_invalid-zero_shdr_table_content.so"],
         },
@@ -246,6 +289,9 @@ cc_prebuilt_test_library_shared {
         },
         arm64: {
             srcs: ["prebuilt-elf-files/arm64/libtest_invalid-textrels.so"],
+        },
+        riscv64: {
+            srcs: ["prebuilt-elf-files/riscv64/libtest_invalid-textrels.so"],
         },
         x86: {
             srcs: ["prebuilt-elf-files/x86/libtest_invalid-textrels.so"],
@@ -270,11 +316,37 @@ cc_prebuilt_test_library_shared {
         arm64: {
             srcs: ["prebuilt-elf-files/arm64/libtest_invalid-textrels2.so"],
         },
+        riscv64: {
+            srcs: ["prebuilt-elf-files/riscv64/libtest_invalid-textrels2.so"],
+        },
         x86: {
             srcs: ["prebuilt-elf-files/x86/libtest_invalid-textrels2.so"],
         },
         x86_64: {
             srcs: ["prebuilt-elf-files/x86_64/libtest_invalid-textrels2.so"],
+        },
+    },
+}
+
+cc_prebuilt_test_library_shared {
+    name: "libtest_invalid-local-tls",
+    strip: {
+        none: true,
+    },
+    check_elf_files: false,
+    relative_install_path: "bionic-loader-test-libs/prebuilt-elf-files",
+    arch: {
+        arm: {
+            srcs: ["prebuilt-elf-files/arm/libtest_invalid-local-tls.so"],
+        },
+        arm64: {
+            srcs: ["prebuilt-elf-files/arm64/libtest_invalid-local-tls.so"],
+        },
+        x86: {
+            srcs: ["prebuilt-elf-files/x86/libtest_invalid-local-tls.so"],
+        },
+        x86_64: {
+            srcs: ["prebuilt-elf-files/x86_64/libtest_invalid-local-tls.so"],
         },
     },
 }
@@ -289,21 +361,27 @@ cc_prebuilt_test_library_shared {
 cc_test_library {
     name: "clang_diagnostic_tests",
     cflags: [
-      "-Xclang",
-      "-verify",
+        "-Xclang -verify",
     ],
     srcs: ["sys_ioctl_diag_test.cpp"],
 }
 
 cc_test_library {
     name: "libBionicStandardTests",
-    defaults: ["bionic_tests_defaults"],
+    defaults: [
+        "bionic_tests_defaults",
+        "large_system_property_node_defaults",
+    ],
+    tidy_disabled_srcs: [
+        "malloc_test.cpp", // timed out with clang-tidy, and too many warnings
+    ],
     srcs: [
         "__aeabi_read_tp_test.cpp",
         "__cxa_atexit_test.cpp",
         "__cxa_demangle_test.cpp",
         "alloca_test.cpp",
         "android_get_device_api_level.cpp",
+        "android_set_abort_message_test.cpp",
         "arpa_inet_test.cpp",
         "async_safe_test.cpp",
         "assert_test.cpp",
@@ -311,7 +389,9 @@ cc_test_library {
         "bug_26110743_test.cpp",
         "byteswap_test.cpp",
         "complex_test.cpp",
-        "complex_force_long_double_test.cpp",
+        // Disabled while investigating
+        // b/378304366, b/375525252
+        // "cpu_target_features_test.cpp",
         "ctype_test.cpp",
         "dirent_test.cpp",
         "elf_test.cpp",
@@ -326,6 +406,7 @@ cc_test_library {
         "_FILE_OFFSET_BITS_test.cpp",
         "float_test.cpp",
         "fnmatch_test.cpp",
+        "fts_test.cpp",
         "ftw_test.cpp",
         "getauxval_test.cpp",
         "getcwd_test.cpp",
@@ -348,17 +429,20 @@ cc_test_library {
         "malloc_iterate_test.cpp",
         "malloc_test.cpp",
         "math_test.cpp",
-        "math_force_long_double_test.cpp",
         "membarrier_test.cpp",
+        "memtag_globals_test.cpp",
+        "memtag_stack_test.cpp",
         "mntent_test.cpp",
         "mte_test.cpp",
         "netdb_test.cpp",
         "net_if_test.cpp",
         "netinet_ether_test.cpp",
+        "netinet_igmp_test.cpp",
         "netinet_in_test.cpp",
         "netinet_ip_icmp_test.cpp",
         "netinet_udp_test.cpp",
         "nl_types_test.cpp",
+        "pidfd_test.cpp",
         "poll_test.cpp",
         "prio_ctor_test.cpp",
         "pthread_test.cpp",
@@ -389,12 +473,16 @@ cc_test_library {
         "string_nofortify_test.cpp",
         "string_test.cpp",
         "string_posix_strerror_r_test.cpp",
+        "string_posix_strerror_r_wrapper.cpp",
         "strings_nofortify_test.cpp",
         "strings_test.cpp",
         "struct_layout_test.cpp",
         "sstream_test.cpp",
         "sys_auxv_test.cpp",
+        "sys_cachectl_test.cpp",
         "sys_epoll_test.cpp",
+        "sys_hwprobe_test.cpp",
+        "sys_io_test.cpp",
         "sys_mman_test.cpp",
         "sys_msg_test.cpp",
         "sys_param_test.cpp",
@@ -425,6 +513,7 @@ cc_test_library {
         "sys_vfs_test.cpp",
         "sys_wait_test.cpp",
         "sys_xattr_test.cpp",
+        "syslog_test.cpp",
         "system_properties_test.cpp",
         "system_properties_test2.cpp",
         "termios_test.cpp",
@@ -434,7 +523,9 @@ cc_test_library {
         "uchar_test.cpp",
         "unistd_nofortify_test.cpp",
         "unistd_test.cpp",
+        "utils.cpp",
         "utmp_test.cpp",
+        "utmpx_test.cpp",
         "wchar_test.cpp",
         "wctype_test.cpp",
     ],
@@ -449,6 +540,22 @@ cc_test_library {
                 "libasync_safe",
                 "libprocinfo",
                 "libsystemproperties",
+            ],
+        },
+        musl: {
+            exclude_srcs: [
+                // musl doesn't have error.h
+                "error_test.cpp",
+
+                // musl doesn't define noreturn for C++
+                "stdnoreturn_test.cpp",
+
+                // unsupported relocation type 37
+                "ifunc_test.cpp",
+
+                // musl #defines utmp to utmpx, causing a collision with
+                // utmpx_test.cpp
+                "utmp_test.cpp",
             ],
         },
     },
@@ -474,20 +581,11 @@ cc_test_library {
     include_dirs: [
         "bionic/libc",
     ],
+    static_libs: [
+        "libbase",
+    ],
     shared: {
         enabled: false,
-    },
-    cflags: [
-        "-fno-emulated-tls",
-    ],
-    // With fuzzer builds, compiler instrumentation generates a reference to the
-    // __sancov_lowest_stack variable, which (for now) is defined by the fuzzer
-    // library as an emutls symbol. The -fno-emulated-tls flag above configures
-    // the compiler to reference an ordinary ELF TLS __sancov_lowest_stack
-    // symbol instead, which isn't defined. Disable the fuzzer for this test
-    // until the platform is switched to ELF TLS.
-    sanitize: {
-        fuzzer: false,
     },
 }
 
@@ -506,18 +604,6 @@ cc_test_library {
     ],
     shared: {
         enabled: false,
-    },
-    cflags: [
-        "-fno-emulated-tls",
-    ],
-    // With fuzzer builds, compiler instrumentation generates a reference to the
-    // __sancov_lowest_stack variable, which (for now) is defined by the fuzzer
-    // library as an emutls symbol. The -fno-emulated-tls flag above configures
-    // the compiler to reference an ordinary ELF TLS __sancov_lowest_stack
-    // symbol instead, which isn't defined. Disable the fuzzer for this test
-    // until the platform is switched to ELF TLS.
-    sanitize: {
-        fuzzer: false,
     },
 }
 
@@ -550,6 +636,9 @@ cc_defaults {
         "-Wno-strlcpy-strlcat-size",
         "-Wno-strncat-size",
     ],
+    static_libs: [
+        "libbase",
+    ],
 }
 
 cc_defaults {
@@ -558,28 +647,16 @@ cc_defaults {
         "-U_FORTIFY_SOURCE",
     ],
     srcs: ["fortify_test_main.cpp"],
+    static_libs: [
+        "libbase",
+    ],
     tidy: false,
     target: {
-        host: {
-            clang_cflags: ["-D__clang__"],
+        musl: {
+            // Musl doesn't have fortify
+            enabled: false,
         },
     },
-}
-
-// Ensures that FORTIFY checks aren't run when ASAN is on.
-cc_test {
-    name: "bionic-fortify-runtime-asan-test",
-    defaults: [
-        "bionic_clang_fortify_tests_w_flags",
-    ],
-    cflags: [
-        "-Werror",
-        "-D_FORTIFY_SOURCE=2",
-    ],
-    sanitize: {
-        address: true,
-    },
-    srcs: ["clang_fortify_asan.cpp"],
 }
 
 // Ensure we don't use FORTIFY'ed functions with the static analyzer/clang-tidy:
@@ -640,11 +717,6 @@ cc_defaults {
     ],
     srcs: ["clang_fortify_tests.cpp"],
     tidy: false,
-    target: {
-        host: {
-            clang_cflags: ["-D__clang__"],
-        },
-    },
 }
 
 cc_test_library {
@@ -677,6 +749,39 @@ cc_test_library {
     },
 }
 
+cc_defaults {
+    name: "bionic_fortify_c_tests_defaults",
+    defaults: [
+        "bionic_clang_fortify_tests_w_flags",
+        "bionic_tests_defaults",
+    ],
+    cflags: [
+        "-U_FORTIFY_SOURCE",
+        // -fbuiltin is required here to counteract -fno-builtin from
+        // `bionic_tests_defaults`. With `-fno-builtin`, Clang won't
+        // const-evaluate calls to `strlen`, which is tested for here.
+        "-fbuiltin",
+    ],
+    srcs: [
+        "clang_fortify_c_only_tests.c",
+    ],
+    tidy: false,
+    shared: {
+        enabled: false,
+    },
+}
+
+cc_test_library {
+    name: "libfortify1-c-tests-clang",
+    defaults: ["bionic_fortify_c_tests_defaults"],
+    cflags: ["-D_FORTIFY_SOURCE=1"],
+}
+
+cc_test_library {
+    name: "libfortify2-c-tests-clang",
+    defaults: ["bionic_fortify_c_tests_defaults"],
+    cflags: ["-D_FORTIFY_SOURCE=2"],
+}
 
 // -----------------------------------------------------------------------------
 // Library of all tests (excluding the dynamic linker tests).
@@ -684,12 +789,15 @@ cc_test_library {
 cc_test_library {
     name: "libBionicTests",
     defaults: ["bionic_tests_defaults"],
+    host_supported: false,
     whole_static_libs: [
         "libBionicStandardTests",
         "libBionicElfTlsTests",
         "libBionicFramePointerTests",
+        "libfortify1-c-tests-clang",
         "libfortify1-tests-clang",
         "libfortify1-new-tests-clang",
+        "libfortify2-c-tests-clang",
         "libfortify2-tests-clang",
         "libfortify2-new-tests-clang",
     ],
@@ -702,21 +810,24 @@ cc_test_library {
     name: "libBionicLoaderTests",
     defaults: [
         "bionic_tests_defaults",
-        "llvm-defaults",
     ],
     srcs: [
         "atexit_test.cpp",
         "dl_test.cpp",
         "dlfcn_symlink_support.cpp",
         "dlfcn_test.cpp",
+        "execinfo_test.cpp",
         "link_test.cpp",
+        "page_size_16kib_compat_test.cpp",
         "pthread_dlfcn_test.cpp",
     ],
     static_libs: [
         "libbase",
+        "libprocinfo",
     ],
     include_dirs: [
         "bionic/libc",
+        "bionic/tests/libs",
     ],
     shared: {
         enabled: false,
@@ -732,12 +843,6 @@ cc_test_library {
                 "libmeminfo",
                 "libprocinfo",
                 "libziparchive",
-                "libLLVMObject",
-                "libLLVMBitReader",
-                "libLLVMMC",
-                "libLLVMMCParser",
-                "libLLVMCore",
-                "libLLVMSupport",
             ],
         },
     },
@@ -751,100 +856,27 @@ cc_test_library {
     name: "libBionicCtsGtestMain",
     defaults: ["bionic_tests_defaults"],
     srcs: [
-        "gtest_globals_cts.cpp",
+        "gtest_globals.cpp",
         "gtest_main.cpp",
     ],
     shared: {
         enabled: false,
     },
     whole_static_libs: [
+        "libbase",
         "libgtest_isolated",
     ],
 }
 
-// -----------------------------------------------------------------------------
-// Tests for the device using bionic's .so. Run with:
-//   adb shell /data/nativetest/bionic-unit-tests/bionic-unit-tests
-//   adb shell /data/nativetest64/bionic-unit-tests/bionic-unit-tests
-// -----------------------------------------------------------------------------
 cc_defaults {
-    name: "bionic_unit_tests_defaults",
-    host_supported: false,
-    gtest: false,
-
-    defaults: [
-        "bionic_tests_defaults",
-    ],
-
-    whole_static_libs: [
-        "libBionicTests",
-        "libBionicLoaderTests",
-        "libBionicElfTlsLoaderTests",
-    ],
-
-    static_libs: [
-        "libtinyxml2",
-        "liblog",
-        "libbase",
-        "libgtest_isolated",
-    ],
-
-    srcs: [
-        // TODO: Include __cxa_thread_atexit_test.cpp to glibc tests once it is upgraded (glibc 2.18+)
-        "__cxa_thread_atexit_test.cpp",
-        "gtest_globals.cpp",
-        "gtest_main.cpp",
-        "thread_local_test.cpp",
-    ],
-
-    conlyflags: [
-        "-fexceptions",
-        "-fnon-call-exceptions",
-    ],
-
-    ldflags: ["-Wl,--export-dynamic"],
-
-    include_dirs: ["bionic/libc"],
-
-    stl: "libc++_static",
-
-    target: {
-        android: {
-            shared_libs: [
-                "ld-android",
-                "libdl",
-                "libdl_android",
-                "libdl_preempt_test_1",
-                "libdl_preempt_test_2",
-                "libdl_test_df_1_global",
-                "libtest_elftls_shared_var",
-                "libtest_elftls_tprel",
-            ],
-            static_libs: [
-                // The order of these libraries matters, do not shuffle them.
-                "libbase",
-                "libmeminfo",
-                "libziparchive",
-                "libz",
-                "libutils",
-                "libLLVMObject",
-                "libLLVMBitReader",
-                "libLLVMMC",
-                "libLLVMMCParser",
-                "libLLVMCore",
-                "libLLVMSupport",
-            ],
-            ldflags: [
-                "-Wl,--rpath,${ORIGIN}/../bionic-loader-test-libs",
-                "-Wl,--enable-new-dtags",
-            ],
-        },
-    },
-
-    required: [
+    name: "bionic_unit_tests_data",
+    data_bins: [
         "cfi_test_helper",
         "cfi_test_helper2",
+        "elftls_align_test_helper",
         "elftls_dlopen_ie_error_helper",
+        "elftls_dtv_resize_helper",
+        "elftls_skew_align_test_helper",
         "exec_linker_helper",
         "exec_linker_helper_lib",
         "heap_tagging_async_helper",
@@ -853,6 +885,8 @@ cc_defaults {
         "heap_tagging_static_disabled_helper",
         "heap_tagging_static_sync_helper",
         "heap_tagging_sync_helper",
+        "stack_tagging_helper",
+        "stack_tagging_static_helper",
         "ld_config_test_helper",
         "ld_config_test_helper_lib1",
         "ld_config_test_helper_lib2",
@@ -860,6 +894,18 @@ cc_defaults {
         "ld_preload_test_helper",
         "ld_preload_test_helper_lib1",
         "ld_preload_test_helper_lib2",
+        "memtag_globals_binary",
+        "memtag_globals_binary_static",
+        "memtag_globals_dso",
+        "mte_globals_relr_regression_test_b_314038442",
+        "mte_globals_relr_regression_test_b_314038442_mte",
+        "ns_hidden_child_helper",
+        "preinit_getauxval_test_helper",
+        "preinit_syscall_test_helper",
+        "thread_exit_cb_helper",
+        "tls_properties_helper",
+    ],
+    data_libs: [
         "libatest_simple_zip",
         "libcfi-test",
         "libcfi-test-bad",
@@ -871,9 +917,7 @@ cc_defaults {
         "libdlext_test_fd",
         "libdlext_test_norelro",
         "libdlext_test_recursive",
-        "libdlext_test_runpath_zip_zipaligned",
         "libdlext_test_zip",
-        "libdlext_test_zip_zipaligned",
         "libgnu-hash-table-library",
         "libns_hidden_child_app",
         "libns_hidden_child_global",
@@ -936,10 +980,13 @@ cc_defaults {
         "libtest_dt_runpath_d",
         "libtest_dt_runpath_x",
         "libtest_dt_runpath_y",
+        "libtest_elf_max_page_size_4kib",
         "libtest_elftls_dynamic",
         "libtest_elftls_dynamic_filler_1",
         "libtest_elftls_dynamic_filler_2",
         "libtest_elftls_dynamic_filler_3",
+        "libtest_elftls_dynamic_filler_4",
+        "libtest_elftls_dynamic_filler_5",
         "libtest_elftls_shared_var",
         "libtest_elftls_shared_var_ie",
         "libtest_elftls_tprel",
@@ -953,6 +1000,7 @@ cc_defaults {
         "libtest_init_fini_order_root",
         "libtest_init_fini_order_root2",
         "libtest_invalid-empty_shdr_table",
+        "libtest_invalid-local-tls",
         "libtest_invalid-rw_load_segment",
         "libtest_invalid-textrels",
         "libtest_invalid-textrels2",
@@ -993,12 +1041,82 @@ cc_defaults {
         "libtest_with_dependency_loop_b",
         "libtest_with_dependency_loop_c",
         "libtestshared",
-        "ns_hidden_child_helper",
-        "preinit_getauxval_test_helper",
-        "preinit_syscall_test_helper",
-        "thread_exit_cb_helper",
-        "tls_properties_helper",
     ],
+}
+
+// -----------------------------------------------------------------------------
+// Tests for the device using bionic's .so. Run with:
+//   adb shell /data/nativetest/bionic-unit-tests/bionic-unit-tests
+//   adb shell /data/nativetest64/bionic-unit-tests/bionic-unit-tests
+// -----------------------------------------------------------------------------
+cc_defaults {
+    name: "bionic_unit_tests_defaults",
+    host_supported: false,
+    gtest: false,
+
+    defaults: [
+        "bionic_tests_defaults",
+        "bionic_unit_tests_data",
+    ],
+
+    whole_static_libs: [
+        "libBionicTests",
+        "libBionicLoaderTests",
+        "libBionicElfTlsLoaderTests",
+    ],
+
+    static_libs: [
+        "libtinyxml2",
+        "liblog",
+        "libbase",
+        "libgtest_isolated",
+    ],
+
+    srcs: [
+        // TODO: Include __cxa_thread_atexit_test.cpp to glibc tests once it is upgraded (glibc 2.18+)
+        "__cxa_thread_atexit_test.cpp",
+        "gtest_globals.cpp",
+        "gtest_main.cpp",
+        "gwp_asan_test.cpp",
+        "thread_local_test.cpp",
+    ],
+
+    conlyflags: [
+        "-fexceptions",
+        "-fnon-call-exceptions",
+    ],
+
+    ldflags: ["-Wl,--export-dynamic"],
+
+    include_dirs: ["bionic/libc"],
+
+    stl: "libc++_static",
+
+    target: {
+        android: {
+            shared_libs: [
+                "ld-android",
+                "libdl",
+                "libdl_android",
+                "libdl_preempt_test_1",
+                "libdl_preempt_test_2",
+                "libdl_test_df_1_global",
+                "libtest_elftls_shared_var",
+                "libtest_elftls_tprel",
+            ],
+            static_libs: [
+                // The order of these libraries matters, do not shuffle them.
+                "libmeminfo",
+                "libziparchive",
+                "libz",
+                "libutils",
+            ],
+            ldflags: [
+                "-Wl,--rpath,${ORIGIN}/bionic-loader-test-libs",
+                "-Wl,--enable-new-dtags",
+            ],
+        },
+    },
 }
 
 cc_test {
@@ -1006,6 +1124,115 @@ cc_test {
     defaults: [
         "bionic_unit_tests_defaults",
     ],
+    test_suites: ["device-tests"],
+    data: [
+        ":libdlext_test_runpath_zip_zipaligned",
+        ":libdlext_test_zip_zipaligned",
+    ],
+}
+
+cc_defaults {
+    name: "hwasan_test_defaults",
+    enabled: false,
+    // This does not use bionic_tests_defaults because it is not supported on
+    // host.
+    arch: {
+        arm64: {
+            enabled: true,
+        },
+    },
+    sanitize: {
+        hwaddress: true,
+    },
+    srcs: [
+        "hwasan_test.cpp",
+    ],
+    data_libs: [
+        "libtest_simple_hwasan",
+        "libtest_simple_hwasan_nohwasan",
+    ],
+    header_libs: ["bionic_libc_platform_headers"],
+    test_suites: ["device-tests"],
+}
+
+cc_test {
+    name: "hwasan_test",
+    defaults: ["hwasan_test_defaults"],
+    shared_libs: [
+        "libbase",
+    ],
+}
+
+cc_test {
+    name: "hwasan_test_static",
+    defaults: ["hwasan_test_defaults"],
+    static_libs: [
+        "libbase",
+    ],
+    static_executable: true,
+    cflags: ["-DHWASAN_TEST_STATIC"],
+}
+
+cc_test {
+    name: "memtag_stack_dlopen_test",
+    enabled: false,
+    // This does not use bionic_tests_defaults because it is not supported on
+    // host.
+    arch: {
+        arm64: {
+            enabled: true,
+        },
+    },
+    sanitize: {
+        memtag_heap: true,
+        memtag_stack: false,
+    },
+    srcs: [
+        "memtag_stack_dlopen_test.cpp",
+    ],
+    shared_libs: [
+        "libbase",
+    ],
+    data_libs: [
+        "libtest_simple_memtag_stack",
+        "libtest_depends_on_simple_memtag_stack",
+    ],
+    data_bins: [
+        "testbinary_depends_on_simple_memtag_stack",
+        "testbinary_depends_on_depends_on_simple_memtag_stack",
+        "testbinary_is_stack_mte_after_dlopen",
+    ],
+    header_libs: ["bionic_libc_platform_headers"],
+    test_suites: ["device-tests"],
+}
+
+cc_test {
+    name: "memtag_stack_abi_test",
+    enabled: false,
+    // This does not use bionic_tests_defaults because it is not supported on
+    // host.
+    arch: {
+        arm64: {
+            enabled: true,
+        },
+    },
+    // We don't use `sanitize:` so we generate the appropriate ELF note, but
+    // still support non-MTE devices.
+    // TODO(fmayer): also add a test that enables stack MTE for MTE devices,
+    // which would test for more bugs.
+    ldflags: ["-fsanitize=memtag-stack"],
+    // Turn off all other sanitizers from SANITIZE_TARGET.
+    sanitize: {
+        never: true,
+    },
+    shared_libs: [
+        "libbase",
+    ],
+    srcs: [
+        "memtag_stack_abi_test.cpp",
+    ],
+    header_libs: ["bionic_libc_platform_headers"],
+    test_suites: ["device-tests"],
 }
 
 cc_test {
@@ -1027,6 +1254,7 @@ cc_test {
 
     shared_libs: [
         "libbase",
+        "liblog",
     ],
 
     target: {
@@ -1048,6 +1276,7 @@ cc_test {
     name: "bionic-unit-tests-static",
     gtest: false,
     defaults: ["bionic_tests_defaults"],
+    test_suites: ["device-tests"],
     host_supported: false,
 
     srcs: [
@@ -1055,9 +1284,9 @@ cc_test {
         "gtest_globals.cpp",
         "gtest_main.cpp",
 
-        // The Bionic allocator has its own C++ API. It isn't packaged into its
-        // own library, so it can only be tested when it's part of libc.a.
+        // Test internal parts of Bionic that aren't exposed via libc.so.
         "bionic_allocator_test.cpp",
+        "static_tls_layout_test.cpp",
     ],
     include_dirs: [
         "bionic/libc",
@@ -1081,6 +1310,28 @@ cc_test {
 
     static_executable: true,
     stl: "libc++_static",
+    // Clang cannot build ifunc with LTO.
+    // http://b/203737712
+    lto: {
+        never: true,
+    },
+    data_bins: [
+        "elftls_align_test_helper",
+        "elftls_skew_align_test_helper",
+        "heap_tagging_async_helper",
+        "heap_tagging_disabled_helper",
+        "heap_tagging_static_async_helper",
+        "heap_tagging_static_disabled_helper",
+        "heap_tagging_static_sync_helper",
+        "heap_tagging_sync_helper",
+        "memtag_globals_binary",
+        "memtag_globals_binary_static",
+        "memtag_globals_dso",
+        "mte_globals_relr_regression_test_b_314038442",
+        "mte_globals_relr_regression_test_b_314038442_mte",
+        "stack_tagging_helper",
+        "stack_tagging_static_helper",
+    ],
 }
 
 // -----------------------------------------------------------------------------
@@ -1098,6 +1349,7 @@ cc_test_host {
         "dlfcn_symlink_support.cpp",
         "dlfcn_test.cpp",
         "dl_test.cpp",
+        "execinfo_test.cpp",
         "gtest_globals.cpp",
         "gtest_main.cpp",
         "pthread_dlfcn_test.cpp",
@@ -1148,7 +1400,57 @@ cc_test_host {
         linux_bionic: {
             enabled: false,
         },
+        musl: {
+            exclude_static_libs: [
+                // Musl doesn't have fortify
+                "libfortify1-tests-clang",
+                "libfortify2-tests-clang",
+            ],
+        },
     },
 }
 
-subdirs = ["*"]
+cc_defaults {
+    name: "bionic_compile_time_tests_defaults",
+    enabled: false,
+    target: {
+        linux_x86: {
+            enabled: true,
+        },
+        linux_x86_64: {
+            enabled: true,
+        },
+    },
+    tidy: false,
+    clang_verify: true,
+    cflags: [
+        "-Wall",
+        "-Wno-error",
+        "-fno-color-diagnostics",
+        "-ferror-limit=10000",
+        "-DCOMPILATION_TESTS=1",
+        "-Wformat-nonliteral",
+        "-U_FORTIFY_SOURCE",
+    ],
+    srcs: ["clang_fortify_tests.cpp"],
+}
+
+cc_library_static {
+    name: "bionic-compile-time-tests1-clang++",
+    defaults: [
+        "bionic_compile_time_tests_defaults",
+    ],
+    cppflags: [
+        "-D_FORTIFY_SOURCE=1",
+    ],
+}
+
+cc_library_static {
+    name: "bionic-compile-time-tests2-clang++",
+    defaults: [
+        "bionic_compile_time_tests_defaults",
+    ],
+    cppflags: [
+        "-D_FORTIFY_SOURCE=2",
+    ],
+}

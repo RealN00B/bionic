@@ -16,6 +16,8 @@
 
 #include <gtest/gtest.h>
 
+#include <errno.h>
+
 #if defined(__BIONIC__)
 #include <async_safe/log.h>
 #endif // __BIONIC__
@@ -43,6 +45,15 @@ TEST(async_safe_log, smoke) {
   async_safe_format_buffer(buf, sizeof(buf), "aa%scc", "bb");
   EXPECT_STREQ("aabbcc", buf);
 
+  async_safe_format_buffer(buf, sizeof(buf), "a%bb", 1234);
+  EXPECT_STREQ("a10011010010b", buf);
+
+  async_safe_format_buffer(buf, sizeof(buf), "a%#bb", 1234);
+  EXPECT_STREQ("a0b10011010010b", buf);
+
+  async_safe_format_buffer(buf, sizeof(buf), "a%#Bb", 1234);
+  EXPECT_STREQ("a0B10011010010b", buf);
+
   async_safe_format_buffer(buf, sizeof(buf), "a%cc", 'b');
   EXPECT_STREQ("abc", buf);
 
@@ -64,14 +75,36 @@ TEST(async_safe_log, smoke) {
   async_safe_format_buffer(buf, sizeof(buf), "a%ldb", 70000L);
   EXPECT_STREQ("a70000b", buf);
 
+  errno = EINVAL;
+  async_safe_format_buffer(buf, sizeof(buf), "a%mZ");
+  EXPECT_STREQ("aInvalid argumentZ", buf);
+
+#if __ANDROID_API_LEVEL__ >= 35
+  errno = EINVAL;
+  async_safe_format_buffer(buf, sizeof(buf), "a%#mZ");
+  EXPECT_STREQ("aEINVALZ", buf);
+#endif
+
+#if __ANDROID_API_LEVEL__ >= 35
+  errno = -1;
+  async_safe_format_buffer(buf, sizeof(buf), "a%#mZ");
+  EXPECT_STREQ("a-1Z", buf);
+#endif
+
   async_safe_format_buffer(buf, sizeof(buf), "a%pb", reinterpret_cast<void*>(0xb0001234));
   EXPECT_STREQ("a0xb0001234b", buf);
 
   async_safe_format_buffer(buf, sizeof(buf), "a%xz", 0x12ab);
   EXPECT_STREQ("a12abz", buf);
 
+  async_safe_format_buffer(buf, sizeof(buf), "a%#xz", 0x12ab);
+  EXPECT_STREQ("a0x12abz", buf);
+
   async_safe_format_buffer(buf, sizeof(buf), "a%Xz", 0x12ab);
   EXPECT_STREQ("a12ABz", buf);
+
+  async_safe_format_buffer(buf, sizeof(buf), "a%#Xz", 0x12ab);
+  EXPECT_STREQ("a0X12ABz", buf);
 
   async_safe_format_buffer(buf, sizeof(buf), "a%08xz", 0x123456);
   EXPECT_STREQ("a00123456z", buf);
@@ -96,6 +129,30 @@ TEST(async_safe_log, smoke) {
 
   async_safe_format_buffer(buf, sizeof(buf), "a%03d:%d:%02dz", 5, 5, 5);
   EXPECT_STREQ("a005:5:05z", buf);
+
+  async_safe_format_buffer(buf, sizeof(buf), "a%#xZ", 34);
+  EXPECT_STREQ("a0x22Z", buf);
+
+  async_safe_format_buffer(buf, sizeof(buf), "a%#xZ", 0);
+  EXPECT_STREQ("a0Z", buf);
+
+  async_safe_format_buffer(buf, sizeof(buf), "a%#5xZ", 20);
+  EXPECT_STREQ("a 0x14Z", buf);
+
+  snprintf(buf, sizeof(buf), "a%#08.8xZ", 1);
+  EXPECT_STREQ("a0x00000001Z", buf);
+
+  async_safe_format_buffer(buf, sizeof(buf), "a%#oZ", 777);
+  EXPECT_STREQ("a01411Z", buf);
+
+  async_safe_format_buffer(buf, sizeof(buf), "a%#oZ", 0);
+  EXPECT_STREQ("a0Z", buf);
+
+  async_safe_format_buffer(buf, sizeof(buf), "a%#6oZ", 15);
+  EXPECT_STREQ("a   017Z", buf);
+
+  snprintf(buf, sizeof(buf), "a%#08.8oZ", 11);
+  EXPECT_STREQ("a00000013Z", buf);
 
   void* p = nullptr;
   async_safe_format_buffer(buf, sizeof(buf), "a%d,%pz", 5, p);
@@ -198,4 +255,20 @@ TEST(async_safe_log, buffer_overrun) {
 #else // __BIONIC__
   GTEST_SKIP() << "bionic-only test";
 #endif // __BIONIC__
+}
+
+// Verify that using %m is never cut off.
+TEST(async_safe_format_buffer, percent_m_fits_in_buffer) {
+#if defined(__BIONIC__)
+  for (int i = 0; i < 256; i++) {
+    errno = i;
+    char async_buf[256];
+    async_safe_format_buffer(async_buf, sizeof(async_buf), "%m");
+    char strerror_buf[1024];
+    strerror_r(errno, strerror_buf, sizeof(strerror_buf));
+    ASSERT_STREQ(strerror_buf, async_buf);
+  }
+#else   // __BIONIC__
+  GTEST_SKIP() << "bionic-only test";
+#endif  // __BIONIC__
 }

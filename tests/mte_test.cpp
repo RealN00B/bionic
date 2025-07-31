@@ -32,13 +32,14 @@ static void test_tag_mismatch() {
       reinterpret_cast<int*>(reinterpret_cast<uintptr_t>(p.get()) + (1ULL << 56));
   {
     ScopedDisableMTE x;
+    // Test that nested ScopedDisableMTE does not reset MTE state.
     { ScopedDisableMTE y; }
 #if defined(__aarch64__)
     volatile int load ATTRIBUTE_UNUSED = *mistagged_p;
 #endif
   }
 #if defined(__aarch64__)
-  if (mte_supported()) {
+  if (mte_supported() && running_with_mte()) {
     EXPECT_DEATH(
         {
           volatile int load ATTRIBUTE_UNUSED = *mistagged_p;

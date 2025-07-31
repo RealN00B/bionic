@@ -37,7 +37,7 @@
 
 #pragma once
 
-#define __bionic_asm_align 16
+#define __bionic_asm_align 64
 
 #undef __bionic_asm_function_type
 #define __bionic_asm_function_type %function
@@ -72,7 +72,8 @@
     .popsection;
 
 #define NT_MEMTAG_LEVEL_MASK 3
-#define NT_MEMTAG_LEVEL_DEFAULT 0
+#define NT_MEMTAG_LEVEL_NONE 0
 #define NT_MEMTAG_LEVEL_ASYNC 1
 #define NT_MEMTAG_LEVEL_SYNC 2
 #define NT_MEMTAG_HEAP 4
+#define NT_MEMTAG_STACK 8

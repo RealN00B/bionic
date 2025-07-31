@@ -39,7 +39,27 @@
 #define CHAR_TYPE_inf "inf"
 #define CHAR_TYPE_NAN "NAN"
 #define CHAR_TYPE_nan "nan"
-#define CHAR_TYPE_ORIENTATION -1
+#define CHAR_TYPE_ORIENTATION ORIENT_BYTES
+
+#define PRINT(ptr, len)                          \
+  do {                                           \
+    iovp->iov_base = (void*)(ptr);               \
+    iovp->iov_len = (len);                       \
+    uio.uio_resid += (len);                      \
+    iovp++;                                      \
+    if (++uio.uio_iovcnt >= NIOV) {              \
+      if (helpers::sprint(fp, &uio)) goto error; \
+      iovp = iov;                                \
+    }                                            \
+  } while (0)
+
+#define FLUSH()                                                 \
+  do {                                                          \
+    if (uio.uio_resid && helpers::sprint(fp, &uio)) goto error; \
+    uio.uio_iovcnt = 0;                                         \
+    iovp = iov;                                                 \
+  } while (0)
+
 #include "printf_common.h"
 
 int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
@@ -81,8 +101,8 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
   char* dtoaresult = nullptr;
 
   uintmax_t _umax;             /* integer arguments %[diouxX] */
-  enum { OCT, DEC, HEX } base; /* base for %[diouxX] conversion */
-  int dprec;                   /* a copy of prec if %[diouxX], 0 otherwise */
+  enum { BIN, OCT, DEC, HEX } base; /* base for %[bBdiouxX] conversion */
+  int dprec;                   /* a copy of prec if %[bBdiouxX], 0 otherwise */
   int realsz;                  /* field size expanded by dprec */
   int size;                    /* size of converted field or string */
   const char* xdigs;           /* digits for %[xX] conversion */
@@ -105,33 +125,15 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
    * below longer.
    */
 #define PADSIZE 16 /* pad chunk size */
-  static CHAR_TYPE blanks[PADSIZE] = {
+  static const CHAR_TYPE blanks[PADSIZE] = {
     ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' '
   };
-  static CHAR_TYPE zeroes[PADSIZE] = {
+  static const CHAR_TYPE zeroes[PADSIZE] = {
     '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'
   };
 
   static const char xdigs_lower[] = "0123456789abcdef";
   static const char xdigs_upper[] = "0123456789ABCDEF";
-
-#define PRINT(ptr, len)                   \
-  do {                                    \
-    iovp->iov_base = (ptr);               \
-    iovp->iov_len = (len);                \
-    uio.uio_resid += (len);               \
-    iovp++;                               \
-    if (++uio.uio_iovcnt >= NIOV) {       \
-      if (helpers::sprint(fp, &uio)) goto error; \
-      iovp = iov;                         \
-    }                                     \
-  } while (0)
-#define FLUSH()                                          \
-  do {                                                   \
-    if (uio.uio_resid && helpers::sprint(fp, &uio)) goto error; \
-    uio.uio_iovcnt = 0;                                  \
-    iovp = iov;                                          \
-  } while (0)
 
   _SET_ORIENTATION(fp, CHAR_TYPE_ORIENTATION);
 
@@ -304,6 +306,12 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
       case 'z':
         flags |= SIZEINT;
         goto rflag;
+      case 'B':
+      case 'b':
+        _umax = UARG();
+        base = BIN;
+        if (flags & ALT && _umax != 0) ox[1] = ch;
+        goto nosign;
       case 'C':
         flags |= LONGINT;
         __BIONIC_FALLTHROUGH;
@@ -332,6 +340,7 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
       case 'd':
       case 'i':
         _umax = SARG();
+signed_decimal:
         if ((intmax_t)_umax < 0) {
           _umax = -_umax;
           sign = '-';
@@ -353,14 +362,14 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
         if (dtoaresult) __freedtoa(dtoaresult);
         if (flags & LONGDBL) {
           fparg.ldbl = GETARG(long double);
-          dtoaresult = cp = __hldtoa(fparg.ldbl, xdigs, prec, &expt, &signflag, &dtoaend);
+          dtoaresult = __hldtoa(fparg.ldbl, xdigs, prec, &expt, &signflag, &dtoaend);
           if (dtoaresult == nullptr) {
             errno = ENOMEM;
             goto error;
           }
         } else {
           fparg.dbl = GETARG(double);
-          dtoaresult = cp = __hdtoa(fparg.dbl, xdigs, prec, &expt, &signflag, &dtoaend);
+          dtoaresult = __hdtoa(fparg.dbl, xdigs, prec, &expt, &signflag, &dtoaend);
           if (dtoaresult == nullptr) {
             errno = ENOMEM;
             goto error;
@@ -390,14 +399,14 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
         if (dtoaresult) __freedtoa(dtoaresult);
         if (flags & LONGDBL) {
           fparg.ldbl = GETARG(long double);
-          dtoaresult = cp = __ldtoa(&fparg.ldbl, expchar ? 2 : 3, prec, &expt, &signflag, &dtoaend);
+          dtoaresult = __ldtoa(&fparg.ldbl, expchar ? 2 : 3, prec, &expt, &signflag, &dtoaend);
           if (dtoaresult == nullptr) {
             errno = ENOMEM;
             goto error;
           }
         } else {
           fparg.dbl = GETARG(double);
-          dtoaresult = cp = __dtoa(fparg.dbl, expchar ? 2 : 3, prec, &expt, &signflag, &dtoaend);
+          dtoaresult = __dtoa(fparg.dbl, expchar ? 2 : 3, prec, &expt, &signflag, &dtoaend);
           if (dtoaresult == nullptr) {
             errno = ENOMEM;
             goto error;
@@ -405,6 +414,13 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
           if (expt == 9999) expt = INT_MAX;
         }
       fp_common:
+#if CHAR_TYPE_ORIENTATION == ORIENT_BYTES
+        cp = dtoaresult;
+#else
+        free(convbuf);
+        cp = convbuf = helpers::mbsconv(dtoaresult, -1);
+        if (cp == nullptr) goto error;
+#endif
         if (signflag) sign = '-';
         if (expt == INT_MAX) { /* inf or nan */
           if (*cp == 'N') {
@@ -417,7 +433,7 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
           break;
         }
         flags |= FPT;
-        ndig = dtoaend - cp;
+        ndig = dtoaend - dtoaresult;
         if (ch == 'g' || ch == 'G') {
           if (expt > -4 && expt <= prec) {
             /* Make %[gG] smell like %[fF] */
@@ -453,7 +469,15 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
       case 'n':
         __fortify_fatal("%%n not allowed on Android");
       case 'm':
-        cp = strerror_r(caller_errno, buf, sizeof(buf));
+        if (flags & ALT) {
+          cp = const_cast<char*>(strerrorname_np(caller_errno));
+          if (cp == nullptr) {
+            _umax = caller_errno;
+            goto signed_decimal;
+          }
+        } else {
+          cp = strerror_r(caller_errno, buf, sizeof(buf));
+        }
         goto string;
       case 'O':
         flags |= LONGINT;
@@ -515,6 +539,21 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
         _umax = UARG();
         base = DEC;
         goto nosign;
+      case 'w': {
+        n = 0;
+        bool fast = false;
+        ch = *fmt++;
+        if (ch == 'f') {
+          fast = true;
+          ch = *fmt++;
+        }
+        while (is_digit(ch)) {
+          APPEND_DIGIT(n, ch);
+          ch = *fmt++;
+        }
+        flags |= helpers::w_to_flag(n, fast);
+        goto reswitch;
+      }
       case 'X':
         xdigs = xdigs_upper;
         goto hex;
@@ -550,6 +589,13 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
            * a variable; hence this switch.
            */
           switch (base) {
+            case BIN:
+              do {
+                *--cp = to_char(_umax & 1);
+                _umax >>= 1;
+              } while (_umax);
+              break;
+
             case OCT:
               do {
                 *--cp = to_char(_umax & 7);
@@ -599,7 +645,7 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
      * first be prefixed by any sign or other prefix; otherwise,
      * it should be blank padded before the prefix is emitted.
      * After any left-hand padding and prefixing, emit zeroes
-     * required by a decimal %[diouxX] precision, then print the
+     * required by a decimal %[bBdiouxX] precision, then print the
      * string proper, then emit zeroes required by any leftover
      * floating precision; finally, if LADJUST, pad with blanks.
      *
@@ -632,6 +678,7 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
     } else { /* glue together f_p fragments */
       if (decimal_point == nullptr) decimal_point = nl_langinfo(RADIXCHAR);
       if (!expchar) { /* %[fF] or sufficiently short %[gG] */
+        CHAR_TYPE* end = cp + ndig;
         if (expt <= 0) {
           PRINT(zeroes, 1);
           if (prec || flags & ALT) PRINT(decimal_point, 1);
@@ -639,11 +686,11 @@ int FUNCTION_NAME(FILE* fp, const CHAR_TYPE* fmt0, va_list ap) {
           /* already handled initial 0's */
           prec += expt;
         } else {
-          PRINTANDPAD(cp, dtoaend, lead, zeroes);
+          PRINTANDPAD(cp, end, lead, zeroes);
           cp += lead;
           if (prec || flags & ALT) PRINT(decimal_point, 1);
         }
-        PRINTANDPAD(cp, dtoaend, prec, zeroes);
+        PRINTANDPAD(cp, end, prec, zeroes);
       } else { /* %[eE] or sufficiently long %[gG] */
         if (prec > 1 || flags & ALT) {
           buf[0] = *cp++;

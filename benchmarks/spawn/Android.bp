@@ -26,6 +26,11 @@
 // SUCH DAMAGE.
 //
 
+package {
+    default_team: "trendy_team_native_tools_libraries",
+    default_applicable_licenses: ["bionic_benchmarks_license"],
+}
+
 cc_defaults {
     name: "bionic_spawn_benchmark_targets",
     host_supported: true,
@@ -37,6 +42,9 @@ cc_defaults {
             enabled: false,
         },
         linux_glibc_x86: {
+            enabled: false,
+        },
+        linux_musl_x86: {
             enabled: false,
         },
     },
@@ -95,6 +103,11 @@ cc_defaults {
     // argument has no effect when a static executable is produced.
     target: {
         linux_glibc_x86_64: {
+            ldflags: [
+                "-Wl,--rpath,${ORIGIN}/../../lib64",
+            ],
+        },
+        linux_musl_x86_64: {
             ldflags: [
                 "-Wl,--rpath,${ORIGIN}/../../lib64",
             ],

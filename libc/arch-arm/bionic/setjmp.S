@@ -75,39 +75,15 @@
 #define _JB_CORE_BASE   (_JB_FLOAT_STATE+1)
 #define _JB_CHECKSUM    (_JB_CORE_BASE+10)
 
-ENTRY(setjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(setjmp)
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(setjmp)
   mov r1, #1
   b sigsetjmp
 END(setjmp)
 
-ENTRY(_setjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(_setjmp)
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(_setjmp)
   mov r1, #0
   b sigsetjmp
 END(_setjmp)
-
-#define MANGLE_REGISTERS 1
-#define USE_CHECKSUM 1
-
-.macro m_mangle_registers reg
-#if MANGLE_REGISTERS
-  eor r4, r4, \reg
-  eor r5, r5, \reg
-  eor r6, r6, \reg
-  eor r7, r7, \reg
-  eor r8, r8, \reg
-  eor r9, r9, \reg
-  eor r10, r10, \reg
-  eor r11, r11, \reg
-  eor r13, r13, \reg
-  eor r14, r14, \reg
-#endif
-.endm
-
-.macro m_unmangle_registers reg
-  m_mangle_registers \reg
-.endm
 
 .macro m_calculate_checksum dst, src, scratch
   mov \dst, #0
@@ -118,8 +94,7 @@ END(_setjmp)
 .endm
 
 // int sigsetjmp(sigjmp_buf env, int save_signal_mask);
-ENTRY(sigsetjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(sigsetjmp)
   stmfd sp!, {r0, lr}
   .cfi_def_cfa_offset 8
   .cfi_rel_offset r0, 0
@@ -167,12 +142,30 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
 
   // Save core registers.
   add r1, r0, #(_JB_CORE_BASE * 4)
-  m_mangle_registers r2
-
-  // ARM deprecates using sp in the register list for stmia.
-  stmia r1, {r4-r11, lr}
-  str sp, [r1, #(9 * 4)]
-  m_unmangle_registers r2
+  // Mangle the easy registers in-place, write them out in one go, and unmangle
+  // them again.
+  eor r4, r4, r2
+  eor r5, r5, r2
+  eor r6, r6, r2
+  eor r7, r7, r2
+  eor r8, r8, r2
+  eor r9, r9, r2
+  eor r10, r10, r2
+  eor r11, r11, r2
+  stmia r1, {r4-r11}
+  eor r4, r4, r2
+  eor r5, r5, r2
+  eor r6, r6, r2
+  eor r7, r7, r2
+  eor r8, r8, r2
+  eor r9, r9, r2
+  eor r10, r10, r2
+  eor r11, r11, r2
+  // We need to avoid invalid values in sp or lr (http://b/152210274).
+  eor r3, lr, r2
+  str r3, [r1, #(8 * 4)]
+  eor r3, sp, r2
+  str r3, [r1, #(9 * 4)]
 
   // Save floating-point registers.
   add r1, r0, #(_JB_FLOAT_BASE * 4)
@@ -182,33 +175,27 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(sigsetjmp)
   fmrx r1, fpscr
   str r1, [r0, #(_JB_FLOAT_STATE * 4)]
 
-#if USE_CHECKSUM
   // Calculate the checksum.
   m_calculate_checksum r12, r0, r2
   str r12, [r0, #(_JB_CHECKSUM * 4)]
-#endif
 
   mov r0, #0
   bx lr
 END(sigsetjmp)
 
 // void siglongjmp(sigjmp_buf env, int value);
-ENTRY(siglongjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
+ENTRY_WEAK_FOR_NATIVE_BRIDGE(siglongjmp)
   stmfd sp!, {r0, r1, lr}
   .cfi_def_cfa_offset 12
   .cfi_rel_offset r0, 0
   .cfi_rel_offset r1, 4
   .cfi_rel_offset lr, 8
 
-#if USE_CHECKSUM
   // Check the checksum before doing anything.
   m_calculate_checksum r12, r0, r3
   ldr r2, [r0, #(_JB_CHECKSUM * 4)]
-
   teq r2, r12
   bne __bionic_setjmp_checksum_mismatch
-#endif
 
   // Fetch the signal flag.
   ldr r1, [r0, #(_JB_SIGFLAG * 4)]
@@ -245,10 +232,21 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
   // Restore core registers.
   add r2, r0, #(_JB_CORE_BASE * 4)
 
-  // ARM deprecates using sp in the register list for ldmia.
-  ldmia r2, {r4-r11, lr}
-  ldr sp, [r2, #(9 * 4)]
-  m_unmangle_registers r3
+  // Do all the easy registers in one go.
+  ldmia r2, {r4-r11}
+  eor r4, r4, r3
+  eor r5, r5, r3
+  eor r6, r6, r3
+  eor r7, r7, r3
+  eor r8, r8, r3
+  eor r9, r9, r3
+  eor r10, r10, r3
+  eor r11, r11, r3
+  // We need to avoid invalid values in sp or lr (http://b/152210274).
+  ldr r0, [r2, #(8 * 4)]
+  eor lr, r0, r3
+  ldr r0, [r2, #(9 * 4)]
+  eor sp, r0, r3
 
   // Save the return value/address and check the setjmp cookie.
   stmfd sp!, {r1, lr}
@@ -267,7 +265,5 @@ __BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(siglongjmp)
   bx lr
 END(siglongjmp)
 
-ALIAS_SYMBOL(longjmp, siglongjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(longjmp)
-ALIAS_SYMBOL(_longjmp, siglongjmp)
-__BIONIC_WEAK_ASM_FOR_NATIVE_BRIDGE(_longjmp)
+ALIAS_SYMBOL_WEAK_FOR_NATIVE_BRIDGE(longjmp, siglongjmp)
+ALIAS_SYMBOL_WEAK_FOR_NATIVE_BRIDGE(_longjmp, siglongjmp)

@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-#ifndef __clang__
-#error "Non-clang isn't supported"
-#endif
-
 //
 // Clang compile-time and run-time tests for Bionic's FORTIFY.
 //
@@ -93,43 +89,19 @@
 #include <unistd.h>
 #include <wchar.h>
 
+#include <array>
+
+#include "DoNotOptimize.h"
+
 #ifndef COMPILATION_TESTS
+#include <android-base/silent_death_test.h>
 #include <gtest/gtest.h>
-#include "BionicDeathTest.h"
 
 #define CONCAT2(x, y) x##y
 #define CONCAT(x, y) CONCAT2(x, y)
-#define FORTIFY_TEST_NAME CONCAT(clang_fortify_test_, _FORTIFY_SOURCE)
+#define FORTIFY_TEST_NAME CONCAT(CONCAT(clang_fortify_test_, _FORTIFY_SOURCE), _DeathTest)
 
-namespace {
-struct FORTIFY_TEST_NAME : BionicDeathTest {
- protected:
-  void SetUp() override {
-    stdin_saved = dup(STDIN_FILENO);
-    if (stdin_saved < 0) err(1, "failed to dup stdin");
-
-    int devnull = open("/dev/null", O_RDONLY);
-    if (devnull < 0) err(1, "failed to open /dev/null");
-
-    if (!dup2(devnull, STDIN_FILENO)) err(1, "failed to overwrite stdin");
-    static_cast<void>(close(devnull));
-
-    BionicDeathTest::SetUp();
-  }
-
-  void TearDown() override {
-    if (stdin_saved == -1) return;
-    if (!dup2(stdin_saved, STDIN_FILENO)) warn("failed to restore stdin");
-
-    static_cast<void>(close(stdin_saved));
-
-    BionicDeathTest::TearDown();
-  }
-
- private:
-  int stdin_saved = -1;
-};
-}  // namespace
+using FORTIFY_TEST_NAME = SilentDeathTest;
 
 template <typename Fn>
 __attribute__((noreturn)) static void ExitAfter(Fn&& f) {
@@ -153,7 +125,7 @@ __attribute__((noreturn)) static void ExitAfter(Fn&& f) {
 #define EXPECT_FORTIFY_DEATH_STRUCT EXPECT_NO_DEATH
 #endif
 
-#define FORTIFY_TEST(test_name) TEST(FORTIFY_TEST_NAME, test_name)
+#define FORTIFY_TEST(test_name) TEST_F(FORTIFY_TEST_NAME, test_name)
 
 #else  // defined(COMPILATION_TESTS)
 
@@ -164,6 +136,24 @@ __attribute__((noreturn)) static void ExitAfter(Fn&& f) {
 #endif
 
 const static int kBogusFD = -1;
+
+FORTIFY_TEST(strlen) {
+  auto run_strlen_with_contents = [&](std::array<char, 3> contents) {
+    // A lot of cruft is necessary to make this test DTRT. LLVM and Clang love to fold/optimize
+    // strlen calls, and that's the opposite of what we want to happen.
+
+    // Loop to convince LLVM that `contents` can never be known (since `xor volatile_value` can flip
+    // any bit in each elem of `contents`).
+    volatile char always_zero = 0;
+    for (char& c : contents) {
+      c ^= always_zero;
+    }
+    DoNotOptimize(strlen(&contents.front()));
+  };
+
+  EXPECT_NO_DEATH(run_strlen_with_contents({'f', 'o', '\0'}));
+  EXPECT_FORTIFY_DEATH(run_strlen_with_contents({'f', 'o', 'o'}));
+}
 
 FORTIFY_TEST(string) {
   char small_buffer[8] = {};
@@ -192,6 +182,7 @@ FORTIFY_TEST(string) {
     const char large_string[] = "Hello!!!";
     static_assert(sizeof(large_string) > sizeof(small_buffer), "");
 
+    // expected-error@+2{{will always overflow}}
     // expected-error@+1{{string bigger than buffer}}
     EXPECT_FORTIFY_DEATH(strcpy(small_buffer, large_string));
     // expected-error@+1{{string bigger than buffer}}
@@ -229,6 +220,7 @@ FORTIFY_TEST(string) {
     static_assert(sizeof(small_string) > sizeof(split.tiny_buffer), "");
 
 #if _FORTIFY_SOURCE > 1
+    // expected-error@+3{{will always overflow}}
     // expected-error@+2{{string bigger than buffer}}
 #endif
     EXPECT_FORTIFY_DEATH_STRUCT(strcpy(split.tiny_buffer, small_string));
@@ -409,6 +401,8 @@ static void testFormatStrings() {
 }
 
 static void testStdlib() {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
   char path_buffer[PATH_MAX - 1];
   // expected-warning@+2{{ignoring return value of function}}
   // expected-error@+1{{must be NULL or a pointer to a buffer with >= PATH_MAX bytes}}
@@ -423,6 +417,7 @@ static void testStdlib() {
   // expected-warning@+2{{ignoring return value of function}}
   // expected-error@+1{{flipped arguments?}}
   realpath(nullptr, nullptr);
+#pragma clang diagnostic pop
 }
 }  // namespace compilation_tests
 #endif

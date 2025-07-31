@@ -33,6 +33,7 @@
 #include <fcntl.h>
 #include <signal.h>
 #include <string.h>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -68,8 +69,6 @@ __LIBC_HIDDEN__ void __libc_init_profiling_handlers() {
   // does not get loaded for a) non-apps, b) non-profilable apps on user. The default signal
   // disposition is to crash. We do not want the target to crash if we accidentally target a
   // non-app or non-profilable process.
-  //
-  // This does *not* get run for processes that statically link libc, and those will still crash.
   signal(BIONIC_SIGNAL_ART_PROFILER, SIG_IGN);
 }
 
@@ -127,28 +126,37 @@ static void HandleProfilingSignal(int /*signal_number*/, siginfo_t* info, void* 
 static void HandleTracedPerfSignal() {
   ScopedFd sock_fd{ socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0 /*protocol*/) };
   if (sock_fd.get() == -1) {
-    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to create socket: %s", strerror(errno));
+    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to create socket: %m");
     return;
   }
 
   sockaddr_un saddr{ AF_UNIX, "/dev/socket/traced_perf" };
   size_t addrlen = sizeof(sockaddr_un);
   if (connect(sock_fd.get(), reinterpret_cast<const struct sockaddr*>(&saddr), addrlen) == -1) {
-    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to connect to traced_perf socket: %s",
-                          strerror(errno));
+    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to connect to traced_perf socket: %m");
     return;
   }
 
+  // If the process is undumpable, /proc/self/mem will be owned by root:root, and therefore
+  // inaccessible to the process itself (see man 5 proc). We temporarily mark the process as
+  // dumpable to allow for the open. Note: prctl is not async signal safe per posix, but bionic's
+  // implementation is. Error checking on prctls is omitted due to them being trivial.
+  int orig_dumpable = prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
+  if (!orig_dumpable) {
+    prctl(PR_SET_DUMPABLE, 1, 0, 0, 0);
+  }
   ScopedFd maps_fd{ open("/proc/self/maps", O_RDONLY | O_CLOEXEC) };
+  ScopedFd mem_fd{ open("/proc/self/mem", O_RDONLY | O_CLOEXEC) };
+  if (!orig_dumpable) {
+    prctl(PR_SET_DUMPABLE, orig_dumpable, 0, 0, 0);
+  }
+
   if (maps_fd.get() == -1) {
-    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to open /proc/self/maps: %s",
-                          strerror(errno));
+    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to open /proc/self/maps: %m");
     return;
   }
-  ScopedFd mem_fd{ open("/proc/self/mem", O_RDONLY | O_CLOEXEC) };
   if (mem_fd.get() == -1) {
-    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to open /proc/self/mem: %s",
-                          strerror(errno));
+    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to open /proc/self/mem: %m");
     return;
   }
 
@@ -172,7 +180,7 @@ static void HandleTracedPerfSignal() {
   memcpy(CMSG_DATA(cmsg), send_fds, num_fds * sizeof(int));
 
   if (sendmsg(sock_fd.get(), &msg_hdr, 0) == -1) {
-    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to sendmsg: %s", strerror(errno));
+    async_safe_format_log(ANDROID_LOG_ERROR, "libc", "failed to sendmsg: %m");
   }
 }
 
@@ -193,12 +201,14 @@ static void HandleSigsysSeccompOverride(int /*signal_number*/, siginfo_t* info,
   auto ret = -ENOSYS;
   ucontext_t* ctx = reinterpret_cast<ucontext_t*>(void_context);
 
-#if defined(__arm__)
+#if defined(__aarch64__)
+  ctx->uc_mcontext.regs[0] = ret;
+#elif defined(__arm__)
   ctx->uc_mcontext.arm_r0 = ret;
-#elif defined(__aarch64__)
-  ctx->uc_mcontext.regs[0] = ret;  // x0
 #elif defined(__i386__)
   ctx->uc_mcontext.gregs[REG_EAX] = ret;
+#elif defined(__riscv)
+  ctx->uc_mcontext.__gregs[REG_A0] = ret;
 #elif defined(__x86_64__)
   ctx->uc_mcontext.gregs[REG_RAX] = ret;
 #else

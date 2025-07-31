@@ -26,6 +26,7 @@
  * SUCH DAMAGE.
  */
 
+#include <cxxabi.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -48,10 +49,8 @@
 
 typedef struct _Unwind_Context __unwind_context;
 
-extern "C" char* __cxa_demangle(const char*, char*, size_t*, int*);
-
 static MapData g_map_data;
-static const MapEntry* g_current_code_map = nullptr;
+static MapEntry g_current_code_map;
 
 static _Unwind_Reason_Code find_current_map(__unwind_context* context, void*) {
   uintptr_t ip = _Unwind_GetIP(context);
@@ -59,11 +58,15 @@ static _Unwind_Reason_Code find_current_map(__unwind_context* context, void*) {
   if (ip == 0) {
     return _URC_END_OF_STACK;
   }
-  g_current_code_map = g_map_data.find(ip);
+  auto map = g_map_data.find(ip);
+  if (map != nullptr) {
+    g_current_code_map = *map;
+  }
   return _URC_END_OF_STACK;
 }
 
 void backtrace_startup() {
+  g_map_data.ReadMaps();
   _Unwind_Backtrace(find_current_map, nullptr);
 }
 
@@ -83,41 +86,25 @@ static _Unwind_Reason_Code trace_function(__unwind_context* context, void* arg) 
 
   uintptr_t ip = _Unwind_GetIP(context);
 
-  // The instruction pointer is pointing at the instruction after the return
-  // call on all architectures.
-  // Modify the pc to point at the real function.
-  if (ip != 0) {
-#if defined(__arm__)
-    // If the ip is suspiciously low, do nothing to avoid a segfault trying
-    // to access this memory.
-    if (ip >= 4096) {
-      // Check bits [15:11] of the first halfword assuming the instruction
-      // is 32 bits long. If the bits are any of these values, then our
-      // assumption was correct:
-      //  b11101
-      //  b11110
-      //  b11111
-      // Otherwise, this is a 16 bit instruction.
-      uint16_t value = (*reinterpret_cast<uint16_t*>(ip - 2)) >> 11;
-      if (value == 0x1f || value == 0x1e || value == 0x1d) {
-        ip -= 4;
-      } else {
-        ip -= 2;
-      }
-    }
-#elif defined(__aarch64__)
-    // All instructions are 4 bytes long, skip back one instruction.
-    ip -= 4;
+  // `ip` is the address of the instruction *after* the call site in
+  // `context`, so we want to back up by one instruction. This is hard for
+  // every architecture except arm64, so we just make sure we're *inside*
+  // that instruction, not necessarily at the start of it. (If the value
+  // is too low to be valid, we just leave it alone.)
+  if (ip >= 4096) {
+#if defined(__aarch64__)
+    ip -= 4;  // Exactly.
+#elif defined(__arm__) || defined(__riscv)
+    ip -= 2;  // At least.
 #elif defined(__i386__) || defined(__x86_64__)
-    // It's difficult to decode exactly where the previous instruction is,
-    // so subtract 1 to estimate where the instruction lives.
-    ip--;
+    ip -= 1;  // At least.
 #endif
+  }
 
-    // Do not record the frames that fall in our own shared library.
-    if (g_current_code_map && (ip >= g_current_code_map->start) && ip < g_current_code_map->end) {
-      return _URC_NO_REASON;
-    }
+  // Do not record the frames that fall in our own shared library.
+  if (g_current_code_map.start() != 0 && (ip >= g_current_code_map.start()) &&
+      ip < g_current_code_map.end()) {
+    return _URC_NO_REASON;
   }
 
   state->frames[state->cur_frame++] = ip;
@@ -131,6 +118,10 @@ size_t backtrace_get(uintptr_t* frames, size_t frame_count) {
 }
 
 std::string backtrace_string(const uintptr_t* frames, size_t frame_count) {
+  if (g_map_data.NumMaps() == 0) {
+    g_map_data.ReadMaps();
+  }
+
   std::string str;
 
   for (size_t frame_num = 0; frame_num < frame_count; frame_num++) {
@@ -148,21 +139,22 @@ std::string backtrace_string(const uintptr_t* frames, size_t frame_count) {
     uintptr_t rel_pc = offset;
     const MapEntry* entry = g_map_data.find(frames[frame_num], &rel_pc);
 
-    const char* soname = (entry != nullptr) ? entry->name.c_str() : info.dli_fname;
+    const char* soname = (entry != nullptr) ? entry->name().c_str() : info.dli_fname;
     if (soname == nullptr) {
       soname = "<unknown>";
     }
 
     char offset_buf[128];
-    if (entry != nullptr && entry->elf_start_offset != 0) {
-      snprintf(offset_buf, sizeof(offset_buf), " (offset 0x%" PRIxPTR ")", entry->elf_start_offset);
+    if (entry != nullptr && entry->elf_start_offset() != 0) {
+      snprintf(offset_buf, sizeof(offset_buf), " (offset 0x%" PRIxPTR ")",
+               entry->elf_start_offset());
     } else {
       offset_buf[0] = '\0';
     }
 
     char buf[1024];
     if (symbol != nullptr) {
-      char* demangled_name = __cxa_demangle(symbol, nullptr, nullptr, nullptr);
+      char* demangled_name = abi::__cxa_demangle(symbol, nullptr, nullptr, nullptr);
       const char* name;
       if (demangled_name != nullptr) {
         name = demangled_name;
@@ -185,5 +177,6 @@ std::string backtrace_string(const uintptr_t* frames, size_t frame_count) {
 }
 
 void backtrace_log(const uintptr_t* frames, size_t frame_count) {
+  g_map_data.ReadMaps();
   error_log_string(backtrace_string(frames, frame_count).c_str());
 }

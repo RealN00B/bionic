@@ -1,21 +1,9 @@
-/****************************************************************************
- ****************************************************************************
- ***
- ***   This header was automatically generated from a Linux kernel header
- ***   of the same name, to make information necessary for userspace to
- ***   call into the kernel available to libc.  It contains only constants,
- ***   structures, and macros generated from the original header, and thus,
- ***   contains no copyrightable information.
- ***
- ***   To edit the content of this header, modify the corresponding
- ***   source file (e.g. under external/kernel-headers/original/) then
- ***   run bionic/libc/kernel/tools/update_all.py
- ***
- ***   Any manual change here will be lost the next time this script will
- ***   be run. You've been warned!
- ***
- ****************************************************************************
- ****************************************************************************/
+/*
+ * This file is auto-generated. Modifications will be lost.
+ *
+ * See https://android.googlesource.com/platform/bionic/+/master/libc/kernel/
+ * for more information.
+ */
 #ifndef _UAPI_LINUX_VIRTIO_NET_H
 #define _UAPI_LINUX_VIRTIO_NET_H
 #include <linux/types.h>
@@ -45,7 +33,14 @@
 #define VIRTIO_NET_F_GUEST_ANNOUNCE 21
 #define VIRTIO_NET_F_MQ 22
 #define VIRTIO_NET_F_CTRL_MAC_ADDR 23
+#define VIRTIO_NET_F_DEVICE_STATS 50
+#define VIRTIO_NET_F_VQ_NOTF_COAL 52
+#define VIRTIO_NET_F_NOTF_COAL 53
+#define VIRTIO_NET_F_GUEST_USO4 54
+#define VIRTIO_NET_F_GUEST_USO6 55
+#define VIRTIO_NET_F_HOST_USO 56
 #define VIRTIO_NET_F_HASH_REPORT 57
+#define VIRTIO_NET_F_GUEST_HDRLEN 59
 #define VIRTIO_NET_F_RSS 60
 #define VIRTIO_NET_F_RSC_EXT 61
 #define VIRTIO_NET_F_STANDBY 62
@@ -84,6 +79,7 @@ struct virtio_net_hdr_v1 {
 #define VIRTIO_NET_HDR_GSO_TCPV4 1
 #define VIRTIO_NET_HDR_GSO_UDP 3
 #define VIRTIO_NET_HDR_GSO_TCPV6 4
+#define VIRTIO_NET_HDR_GSO_UDP_L4 5
 #define VIRTIO_NET_HDR_GSO_ECN 0x80
   __u8 gso_type;
   __virtio16 hdr_len;
@@ -135,7 +131,7 @@ struct virtio_net_hdr_mrg_rxbuf {
 };
 #endif
 struct virtio_net_ctrl_hdr {
-  __u8 class;
+  __u8 __linux_class;
   __u8 cmd;
 } __attribute__((packed));
 typedef __u8 virtio_net_ctrl_ack;
@@ -186,4 +182,125 @@ struct virtio_net_hash_config {
 #define VIRTIO_NET_CTRL_MQ_HASH_CONFIG 2
 #define VIRTIO_NET_CTRL_GUEST_OFFLOADS 5
 #define VIRTIO_NET_CTRL_GUEST_OFFLOADS_SET 0
+#define VIRTIO_NET_CTRL_NOTF_COAL 6
+struct virtio_net_ctrl_coal_tx {
+  __le32 tx_max_packets;
+  __le32 tx_usecs;
+};
+#define VIRTIO_NET_CTRL_NOTF_COAL_TX_SET 0
+struct virtio_net_ctrl_coal_rx {
+  __le32 rx_max_packets;
+  __le32 rx_usecs;
+};
+#define VIRTIO_NET_CTRL_NOTF_COAL_RX_SET 1
+#define VIRTIO_NET_CTRL_NOTF_COAL_VQ_SET 2
+#define VIRTIO_NET_CTRL_NOTF_COAL_VQ_GET 3
+struct virtio_net_ctrl_coal {
+  __le32 max_packets;
+  __le32 max_usecs;
+};
+struct virtio_net_ctrl_coal_vq {
+  __le16 vqn;
+  __le16 reserved;
+  struct virtio_net_ctrl_coal coal;
+};
+#define VIRTIO_NET_CTRL_STATS 8
+#define VIRTIO_NET_CTRL_STATS_QUERY 0
+#define VIRTIO_NET_CTRL_STATS_GET 1
+struct virtio_net_stats_capabilities {
+#define VIRTIO_NET_STATS_TYPE_CVQ (1ULL << 32)
+#define VIRTIO_NET_STATS_TYPE_RX_BASIC (1ULL << 0)
+#define VIRTIO_NET_STATS_TYPE_RX_CSUM (1ULL << 1)
+#define VIRTIO_NET_STATS_TYPE_RX_GSO (1ULL << 2)
+#define VIRTIO_NET_STATS_TYPE_RX_SPEED (1ULL << 3)
+#define VIRTIO_NET_STATS_TYPE_TX_BASIC (1ULL << 16)
+#define VIRTIO_NET_STATS_TYPE_TX_CSUM (1ULL << 17)
+#define VIRTIO_NET_STATS_TYPE_TX_GSO (1ULL << 18)
+#define VIRTIO_NET_STATS_TYPE_TX_SPEED (1ULL << 19)
+  __le64 supported_stats_types[1];
+};
+struct virtio_net_ctrl_queue_stats {
+  struct {
+    __le16 vq_index;
+    __le16 reserved[3];
+    __le64 types_bitmap[1];
+  } stats[1];
+};
+struct virtio_net_stats_reply_hdr {
+#define VIRTIO_NET_STATS_TYPE_REPLY_CVQ 32
+#define VIRTIO_NET_STATS_TYPE_REPLY_RX_BASIC 0
+#define VIRTIO_NET_STATS_TYPE_REPLY_RX_CSUM 1
+#define VIRTIO_NET_STATS_TYPE_REPLY_RX_GSO 2
+#define VIRTIO_NET_STATS_TYPE_REPLY_RX_SPEED 3
+#define VIRTIO_NET_STATS_TYPE_REPLY_TX_BASIC 16
+#define VIRTIO_NET_STATS_TYPE_REPLY_TX_CSUM 17
+#define VIRTIO_NET_STATS_TYPE_REPLY_TX_GSO 18
+#define VIRTIO_NET_STATS_TYPE_REPLY_TX_SPEED 19
+  __u8 type;
+  __u8 reserved;
+  __le16 vq_index;
+  __le16 reserved1;
+  __le16 size;
+};
+struct virtio_net_stats_cvq {
+  struct virtio_net_stats_reply_hdr hdr;
+  __le64 command_num;
+  __le64 ok_num;
+};
+struct virtio_net_stats_rx_basic {
+  struct virtio_net_stats_reply_hdr hdr;
+  __le64 rx_notifications;
+  __le64 rx_packets;
+  __le64 rx_bytes;
+  __le64 rx_interrupts;
+  __le64 rx_drops;
+  __le64 rx_drop_overruns;
+};
+struct virtio_net_stats_tx_basic {
+  struct virtio_net_stats_reply_hdr hdr;
+  __le64 tx_notifications;
+  __le64 tx_packets;
+  __le64 tx_bytes;
+  __le64 tx_interrupts;
+  __le64 tx_drops;
+  __le64 tx_drop_malformed;
+};
+struct virtio_net_stats_rx_csum {
+  struct virtio_net_stats_reply_hdr hdr;
+  __le64 rx_csum_valid;
+  __le64 rx_needs_csum;
+  __le64 rx_csum_none;
+  __le64 rx_csum_bad;
+};
+struct virtio_net_stats_tx_csum {
+  struct virtio_net_stats_reply_hdr hdr;
+  __le64 tx_csum_none;
+  __le64 tx_needs_csum;
+};
+struct virtio_net_stats_rx_gso {
+  struct virtio_net_stats_reply_hdr hdr;
+  __le64 rx_gso_packets;
+  __le64 rx_gso_bytes;
+  __le64 rx_gso_packets_coalesced;
+  __le64 rx_gso_bytes_coalesced;
+};
+struct virtio_net_stats_tx_gso {
+  struct virtio_net_stats_reply_hdr hdr;
+  __le64 tx_gso_packets;
+  __le64 tx_gso_bytes;
+  __le64 tx_gso_segments;
+  __le64 tx_gso_segments_bytes;
+  __le64 tx_gso_packets_noseg;
+  __le64 tx_gso_bytes_noseg;
+};
+struct virtio_net_stats_rx_speed {
+  struct virtio_net_stats_reply_hdr hdr;
+  __le64 rx_ratelimit_packets;
+  __le64 rx_ratelimit_bytes;
+};
+struct virtio_net_stats_tx_speed {
+  struct virtio_net_stats_reply_hdr hdr;
+  __le64 tx_ratelimit_packets;
+  __le64 tx_ratelimit_bytes;
+};
 #endif

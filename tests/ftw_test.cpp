@@ -28,6 +28,8 @@
 #include <android-base/stringprintf.h>
 #include <gtest/gtest.h>
 
+#include "utils.h"
+
 static void MakeTree(const char* root) {
   char path[PATH_MAX];
 
@@ -106,7 +108,7 @@ TEST(ftw, ftw) {
   ASSERT_EQ(0, ftw(root.path, check_ftw, 128));
 }
 
-TEST(ftw, ftw64) {
+TEST(ftw, ftw64_smoke) {
   TemporaryDir root;
   MakeTree(root.path);
   ASSERT_EQ(0, ftw64(root.path, check_ftw64, 128));
@@ -118,7 +120,7 @@ TEST(ftw, nftw) {
   ASSERT_EQ(0, nftw(root.path, check_nftw, 128, 0));
 }
 
-TEST(ftw, nftw64) {
+TEST(ftw, nftw64_smoke) {
   TemporaryDir root;
   MakeTree(root.path);
   ASSERT_EQ(0, nftw64(root.path, check_nftw64, 128, 0));
@@ -167,35 +169,35 @@ static int null_nftw_callback(const char*, const StatT*, int, FTW*) {
 TEST(ftw, ftw_non_existent_ENOENT) {
   errno = 0;
   ASSERT_EQ(-1, ftw("/does/not/exist", null_ftw_callback<struct stat>, 128));
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
   errno = 0;
   ASSERT_EQ(-1, ftw64("/does/not/exist", null_ftw_callback<struct stat64>, 128));
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
 }
 
 TEST(ftw, nftw_non_existent_ENOENT) {
   errno = 0;
   ASSERT_EQ(-1, nftw("/does/not/exist", null_nftw_callback<struct stat>, 128, FTW_PHYS));
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
   errno = 0;
   ASSERT_EQ(-1, nftw64("/does/not/exist", null_nftw_callback<struct stat64>, 128, FTW_PHYS));
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
 }
 
 TEST(ftw, ftw_empty_ENOENT) {
   errno = 0;
   ASSERT_EQ(-1, ftw("", null_ftw_callback<struct stat>, 128));
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
   errno = 0;
   ASSERT_EQ(-1, ftw64("", null_ftw_callback<struct stat64>, 128));
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
 }
 
 TEST(ftw, nftw_empty_ENOENT) {
   errno = 0;
   ASSERT_EQ(-1, nftw("", null_nftw_callback<struct stat>, 128, FTW_PHYS));
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
   errno = 0;
   ASSERT_EQ(-1, nftw64("", null_nftw_callback<struct stat64>, 128, FTW_PHYS));
-  ASSERT_EQ(ENOENT, errno);
+  ASSERT_ERRNO(ENOENT);
 }

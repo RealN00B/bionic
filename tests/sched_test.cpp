@@ -21,6 +21,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include "utils.h"
+
 static int child_fn(void* i_ptr) {
   *reinterpret_cast<int*>(i_ptr) = 42;
   return 123;
@@ -57,14 +59,14 @@ TEST(sched, clone_errno) {
   errno = 0;
   // If CLONE_THREAD is set, CLONE_SIGHAND must be set too.
   ASSERT_EQ(-1, clone(child_fn, &fake_child_stack[16], CLONE_THREAD, nullptr));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 }
 
 TEST(sched, clone_null_child_stack) {
   int i = 0;
   errno = 0;
   ASSERT_EQ(-1, clone(child_fn, nullptr, CLONE_VM, &i));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 }
 
 TEST(sched, cpu_set) {
@@ -289,7 +291,7 @@ TEST(sched, sched_getscheduler_sched_setscheduler) {
   p.sched_priority = sched_get_priority_min(original_policy);
   errno = 0;
   ASSERT_EQ(-1, sched_setscheduler(getpid(), INT_MAX, &p));
-  ASSERT_EQ(EINVAL, errno);
+  ASSERT_ERRNO(EINVAL);
 
   ASSERT_EQ(0, sched_getparam(getpid(), &p));
   ASSERT_EQ(original_policy, sched_setscheduler(getpid(), SCHED_BATCH, &p));
@@ -303,5 +305,35 @@ TEST(sched, sched_getscheduler_sched_setscheduler) {
 }
 
 TEST(sched, sched_getaffinity_failure) {
+  // Trivial test of the errno-preserving/returning behavior.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
   ASSERT_EQ(-1, sched_getaffinity(getpid(), 0, nullptr));
+  ASSERT_ERRNO(EINVAL);
+#pragma clang diagnostic pop
+}
+
+TEST(pthread, sched_getaffinity) {
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  ASSERT_EQ(0, sched_getaffinity(getpid(), sizeof(set), &set));
+  ASSERT_GT(CPU_COUNT(&set), 0);
+}
+
+TEST(sched, sched_setaffinity_failure) {
+  // Trivial test of the errno-preserving/returning behavior.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnonnull"
+  ASSERT_EQ(-1, sched_setaffinity(getpid(), 0, nullptr));
+  ASSERT_ERRNO(EINVAL);
+#pragma clang diagnostic pop
+}
+
+TEST(pthread, sched_setaffinity) {
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  ASSERT_EQ(0, sched_getaffinity(getpid(), sizeof(set), &set));
+  // It's hard to make any more general claim than this,
+  // but it ought to be safe to ask for the same affinity you already have.
+  ASSERT_EQ(0, sched_setaffinity(getpid(), sizeof(set), &set));
 }

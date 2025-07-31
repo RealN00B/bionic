@@ -31,23 +31,30 @@
 
 #include <array>
 #include <mutex>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
 #include <vector>
 
 #include <android/fdsan.h>
+#include <android/set_abort_message.h>
 #include <bionic/fdtrack.h>
 
 #include <android-base/no_destructor.h>
 #include <android-base/thread_annotations.h>
 #include <async_safe/log.h>
 #include <bionic/reserved_signals.h>
-#include <unwindstack/LocalUnwinder.h>
+
+#include <unwindstack/AndroidUnwinder.h>
 
 struct FdEntry {
   std::mutex mutex;
-  std::vector<unwindstack::LocalFrameData> backtrace GUARDED_BY(mutex);
+  std::vector<unwindstack::FrameData> backtrace GUARDED_BY(mutex);
 };
 
 extern "C" void fdtrack_dump();
+extern "C" void fdtrack_dump_fatal();
 
 using fdtrack_callback_t = bool (*)(int fd, const char* const* function_names,
                                     const uint64_t* function_offsets, size_t count, void* arg);
@@ -58,14 +65,18 @@ static void fd_hook(android_fdtrack_event* event);
 // Backtraces for the first 4k file descriptors ought to be enough to diagnose an fd leak.
 static constexpr size_t kFdTableSize = 4096;
 
-// 32 frames, plus two to skip from fdtrack itself.
-static constexpr size_t kStackDepth = 34;
-static constexpr size_t kStackFrameSkip = 2;
+// Only unwind up to 32 frames outside of libfdtrack.so.
+static constexpr size_t kStackDepth = 32;
 
 static bool installed = false;
 static std::array<FdEntry, kFdTableSize> stack_traces [[clang::no_destroy]];
-static unwindstack::LocalUnwinder& Unwinder() {
-  static android::base::NoDestructor<unwindstack::LocalUnwinder> unwinder;
+static unwindstack::AndroidLocalUnwinder& Unwinder() {
+  // Skip any initial frames from libfdtrack.so.
+  // Also ignore frames from ART (http://b/236197847) because we'd rather spend
+  // our precious few frames on the actual Java calling code rather than the
+  // implementation of JNI!
+  static android::base::NoDestructor<unwindstack::AndroidLocalUnwinder> unwinder(
+      std::vector<std::string>{"libfdtrack.so", "libart.so"});
   return *unwinder.get();
 }
 
@@ -74,11 +85,24 @@ __attribute__((constructor)) static void ctor() {
     entry.backtrace.reserve(kStackDepth);
   }
 
-  signal(BIONIC_SIGNAL_FDTRACK, [](int) { fdtrack_dump(); });
-  if (Unwinder().Init()) {
+  struct sigaction sa = {};
+  sa.sa_sigaction = [](int, siginfo_t* siginfo, void*) {
+    if (siginfo->si_code == SI_QUEUE && siginfo->si_int == 1) {
+      fdtrack_dump_fatal();
+    } else {
+      fdtrack_dump();
+    }
+  };
+  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+  sigaction(BIONIC_SIGNAL_FDTRACK, &sa, nullptr);
+
+  unwindstack::ErrorData error;
+  if (Unwinder().Initialize(error)) {
     android_fdtrack_hook_t expected = nullptr;
     installed = android_fdtrack_compare_exchange_hook(&expected, &fd_hook);
   }
+
+  android_fdtrack_set_globally_enabled(true);
 }
 
 __attribute__((destructor)) static void dtor() {
@@ -100,7 +124,11 @@ static void fd_hook(android_fdtrack_event* event) {
     if (FdEntry* entry = GetFdEntry(event->fd); entry) {
       std::lock_guard<std::mutex> lock(entry->mutex);
       entry->backtrace.clear();
-      Unwinder().Unwind(&entry->backtrace, kStackDepth);
+
+      unwindstack::AndroidUnwinderData data(kStackDepth);
+      if (Unwinder().Unwind(data)) {
+        entry->backtrace = std::move(data.frames);
+      }
     }
   } else if (event->type == ANDROID_FDTRACK_EVENT_TYPE_CLOSE) {
     if (FdEntry* entry = GetFdEntry(event->fd); entry) {
@@ -137,14 +165,13 @@ void fdtrack_iterate(fdtrack_callback_t callback, void* arg) {
       continue;
     }
 
-    for (size_t i = kStackFrameSkip; i < entry->backtrace.size(); ++i) {
-      size_t j = i - kStackFrameSkip;
-      function_names[j] = entry->backtrace[i].function_name.c_str();
-      function_offsets[j] = entry->backtrace[i].function_offset;
+    for (size_t i = 0; i < entry->backtrace.size(); ++i) {
+      function_names[i] = entry->backtrace[i].function_name.c_str();
+      function_offsets[i] = entry->backtrace[i].function_offset;
     }
 
-    bool should_continue = callback(fd, function_names, function_offsets,
-                                    entry->backtrace.size() - kStackFrameSkip, arg);
+    bool should_continue =
+        callback(fd, function_names, function_offsets, entry->backtrace.size(), arg);
 
     entry->mutex.unlock();
 
@@ -156,16 +183,47 @@ void fdtrack_iterate(fdtrack_callback_t callback, void* arg) {
   android_fdtrack_set_enabled(prev);
 }
 
-void fdtrack_dump() {
+static size_t hash_stack(const char* const* function_names, const uint64_t* function_offsets,
+                         size_t stack_depth) {
+  size_t hash = 0;
+  for (size_t i = 0; i < stack_depth; ++i) {
+    // To future maintainers: if a libc++ update ever makes this invalid, replace this with +.
+    hash = std::__hash_combine(hash, std::hash<std::string_view>()(function_names[i]));
+    hash = std::__hash_combine(hash, std::hash<uint64_t>()(function_offsets[i]));
+  }
+  return hash;
+}
+
+static void fdtrack_dump_impl(bool fatal) {
   if (!installed) {
     async_safe_format_log(ANDROID_LOG_INFO, "fdtrack", "fdtrack not installed");
   } else {
     async_safe_format_log(ANDROID_LOG_INFO, "fdtrack", "fdtrack dumping...");
   }
 
+  // If we're aborting, identify the most common stack in the hopes that it's the culprit,
+  // and emit that in the abort message so crash reporting can separate different fd leaks out.
+  // This is horrible and quadratic, but we need to avoid allocation since this can happen in
+  // response to a signal generated asynchronously. We're only going to dump 1k fds by default,
+  // and we're about to blow up the entire system, so this isn't too expensive.
+  struct StackInfo {
+    size_t hash = 0;
+    size_t count = 0;
+
+    size_t stack_depth = 0;
+    const char* function_names[kStackDepth];
+    uint64_t function_offsets[kStackDepth];
+  };
+  struct StackList {
+    size_t count = 0;
+    std::array<StackInfo, 128> data;
+  };
+  static StackList stacks;
+
   fdtrack_iterate(
-      [](int fd, const char* const* function_names, const uint64_t* function_offsets, size_t count,
-         void*) {
+      [](int fd, const char* const* function_names, const uint64_t* function_offsets,
+         size_t stack_depth, void* stacks_ptr) {
+        auto stacks = static_cast<StackList*>(stacks_ptr);
         uint64_t fdsan_owner = android_fdsan_get_owner_tag(fd);
         if (fdsan_owner != 0) {
           async_safe_format_log(ANDROID_LOG_INFO, "fdtrack", "fd %d: (owner = 0x%" PRIx64 ")", fd,
@@ -174,12 +232,85 @@ void fdtrack_dump() {
           async_safe_format_log(ANDROID_LOG_INFO, "fdtrack", "fd %d: (unowned)", fd);
         }
 
-        for (size_t i = 0; i < count; ++i) {
+        for (size_t i = 0; i < stack_depth; ++i) {
           async_safe_format_log(ANDROID_LOG_INFO, "fdtrack", "  %zu: %s+%" PRIu64, i,
                                 function_names[i], function_offsets[i]);
         }
 
+        if (stacks) {
+          size_t hash = hash_stack(function_names, function_offsets, stack_depth);
+          bool found_stack = false;
+          for (size_t i = 0; i < stacks->count; ++i) {
+            if (stacks->data[i].hash == hash) {
+              ++stacks->data[i].count;
+              found_stack = true;
+              break;
+            }
+          }
+
+          if (!found_stack) {
+            if (stacks->count < stacks->data.size()) {
+              auto& stack = stacks->data[stacks->count++];
+              stack.hash = hash;
+              stack.count = 1;
+              stack.stack_depth = stack_depth;
+              for (size_t i = 0; i < stack_depth; ++i) {
+                stack.function_names[i] = function_names[i];
+                stack.function_offsets[i] = function_offsets[i];
+              }
+            }
+          }
+        }
+
         return true;
       },
-      nullptr);
+      fatal ? &stacks : nullptr);
+
+  if (fatal) {
+    // Find the most common stack.
+    size_t max = 0;
+    size_t total = 0;
+    StackInfo* stack = nullptr;
+    for (size_t i = 0; i < stacks.count; ++i) {
+      total += stacks.data[i].count;
+      if (stacks.data[i].count > max) {
+        stack = &stacks.data[i];
+        max = stack->count;
+      }
+    }
+
+    static char buf[1024];
+
+    if (!stack) {
+      async_safe_format_buffer(buf, sizeof(buf),
+                               "aborting due to fd leak: see \"open files\" in the tombstone; "
+                               "no stacks?!");
+    } else {
+      char* p = buf;
+      p += async_safe_format_buffer(buf, sizeof(buf),
+                                    "aborting due to fd leak: see \"open files\" in the tombstone; "
+                                    "most common stack (%zu/%zu) is\n", max, total);
+
+      for (size_t i = 0; i < stack->stack_depth; ++i) {
+        ssize_t bytes_left = buf + sizeof(buf) - p;
+        if (bytes_left > 0) {
+          p += async_safe_format_buffer(p, buf + sizeof(buf) - p, "  %zu: %s+%" PRIu64 "\n", i,
+                                        stack->function_names[i], stack->function_offsets[i]);
+        }
+      }
+    }
+
+    android_set_abort_message(buf);
+
+    // Abort on a different thread to avoid ART dumping runtime stacks.
+    std::thread([]() { abort(); }).join();
+  }
+}
+
+void fdtrack_dump() {
+  fdtrack_dump_impl(false);
+}
+
+void fdtrack_dump_fatal() {
+  fdtrack_dump_impl(true);
 }

@@ -58,8 +58,6 @@
 #include "private/bionic_fortify.h"
 #include "private/thread_private.h"
 
-#include "private/bsd_sys_param.h" // For ALIGN/ALIGNBYTES.
-
 #define	NDYNAMIC 10		/* add ten more whenever necessary */
 
 #define PRINTF_IMPL(expr) \
@@ -135,12 +133,14 @@ class ScopedFileLock {
 };
 
 static glue* moreglue(int n) {
-  char* data = new char[sizeof(glue) + ALIGNBYTES + n * sizeof(FILE) + n * sizeof(__sfileext)];
+  char* data = new char[sizeof(glue) +
+                        alignof(FILE) + n * sizeof(FILE) +
+                        alignof(__sfileext) + n * sizeof(__sfileext)];
   if (data == nullptr) return nullptr;
 
   glue* g = reinterpret_cast<glue*>(data);
-  FILE* p = reinterpret_cast<FILE*>(ALIGN(data + sizeof(*g)));
-  __sfileext* pext = reinterpret_cast<__sfileext*>(ALIGN(data + sizeof(*g)) + n * sizeof(FILE));
+  FILE* p = reinterpret_cast<FILE*>(__builtin_align_up(g + 1, alignof(FILE)));
+  __sfileext* pext = reinterpret_cast<__sfileext*>(__builtin_align_up(p + n, alignof(__sfileext)));
   g->next = nullptr;
   g->niobs = n;
   g->iobs = p;
@@ -197,7 +197,7 @@ found:
 	fp->_lb._size = 0;
 
 	memset(_EXT(fp), 0, sizeof(struct __sfileext));
-	_FLOCK(fp) = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+	_EXT(fp)->_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
 	_EXT(fp)->_caller_handles_locking = false;
 
 	// Caller sets cookie, _read/_write etc.
@@ -773,7 +773,7 @@ char* fgets(char* buf, int n, FILE* fp) {
 char* fgets_unlocked(char* buf, int n, FILE* fp) {
   if (n <= 0) __fortify_fatal("fgets: buffer size %d <= 0", n);
 
-  _SET_ORIENTATION(fp, -1);
+  _SET_ORIENTATION(fp, ORIENT_BYTES);
 
   char* s = buf;
   n--; // Leave space for NUL.
@@ -884,7 +884,7 @@ wint_t getwchar() {
 
 void perror(const char* msg) {
   if (msg == nullptr) msg = "";
-  fprintf(stderr, "%s%s%s\n", msg, (*msg == '\0') ? "" : ": ", strerror(errno));
+  fprintf(stderr, "%s%s%m\n", msg, (*msg == '\0') ? "" : ": ");
 }
 
 int printf(const char* fmt, ...) {
@@ -903,7 +903,7 @@ int putc_unlocked(int c, FILE* fp) {
     errno = EBADF;
     return EOF;
   }
-  _SET_ORIENTATION(fp, -1);
+  _SET_ORIENTATION(fp, ORIENT_BYTES);
   if (--fp->_w >= 0 || (fp->_w >= fp->_lbfsize && c != '\n')) {
     return (*fp->_p++ = c);
   }
@@ -1079,6 +1079,26 @@ int fflush_unlocked(FILE* fp) {
   return __sflush(fp);
 }
 
+int fpurge(FILE* fp) {
+  CHECK_FP(fp);
+
+  ScopedFileLock sfl(fp);
+
+  if (fp->_flags == 0) {
+    // Already freed!
+    errno = EBADF;
+    return EOF;
+  }
+
+  if (HASUB(fp)) FREEUB(fp);
+  WCIO_FREE(fp);
+  fp->_p = fp->_bf._base;
+  fp->_r = 0;
+  fp->_w = fp->_flags & (__SLBF | __SNBF) ? 0 : fp->_bf._size;
+  return 0;
+}
+__strong_alias(__fpurge, fpurge);
+
 size_t fread(void* buf, size_t size, size_t count, FILE* fp) {
   CHECK_FP(fp);
   ScopedFileLock sfl(fp);
@@ -1098,7 +1118,7 @@ size_t fread_unlocked(void* buf, size_t size, size_t count, FILE* fp) {
   size_t total = desired_total;
   if (total == 0) return 0;
 
-  _SET_ORIENTATION(fp, -1);
+  _SET_ORIENTATION(fp, ORIENT_BYTES);
 
   // TODO: how can this ever happen?!
   if (fp->_r < 0) fp->_r = 0;
@@ -1129,7 +1149,9 @@ size_t fread_unlocked(void* buf, size_t size, size_t count, FILE* fp) {
 
   // Read directly into the caller's buffer.
   while (total > 0) {
-    ssize_t bytes_read = (*fp->_read)(fp->_cookie, dst, total);
+    // The _read function pointer takes an int instead of a size_t.
+    int chunk_size = MIN(total, INT_MAX);
+    ssize_t bytes_read = (*fp->_read)(fp->_cookie, dst, chunk_size);
     if (bytes_read <= 0) {
       fp->_flags |= (bytes_read == 0) ? __SEOF : __SERR;
       break;
@@ -1163,7 +1185,7 @@ size_t fwrite_unlocked(const void* buf, size_t size, size_t count, FILE* fp) {
   __siov iov = { .iov_base = const_cast<void*>(buf), .iov_len = n };
   __suio uio = { .uio_iov = &iov, .uio_iovcnt = 1, .uio_resid = n };
 
-  _SET_ORIENTATION(fp, -1);
+  _SET_ORIENTATION(fp, ORIENT_BYTES);
 
   // The usual case is success (__sfvwrite returns 0); skip the divide if this happens,
   // since divides are generally slow.
@@ -1219,7 +1241,7 @@ FILE* popen(const char* cmd, const char* mode) {
     if (dup2(fds[child], desired_child_fd) == -1) _exit(127);
     close(fds[child]);
     if (bidirectional) dup2(STDOUT_FILENO, STDIN_FILENO);
-    execl(__bionic_get_shell_path(), "sh", "-c", cmd, nullptr);
+    execl(__bionic_get_shell_path(), "sh", "-c", "--", cmd, nullptr);
     _exit(127);
   }
 
@@ -1235,6 +1257,23 @@ FILE* popen(const char* cmd, const char* mode) {
 int pclose(FILE* fp) {
   CHECK_FP(fp);
   return __FILE_close(fp);
+}
+
+void flockfile(FILE* fp) {
+  CHECK_FP(fp);
+  pthread_mutex_lock(&_EXT(fp)->_lock);
+}
+
+int ftrylockfile(FILE* fp) {
+  CHECK_FP(fp);
+  // The specification for ftrylockfile() says it returns 0 on success,
+  // or non-zero on error. We don't bother canonicalizing to 0/-1...
+  return pthread_mutex_trylock(&_EXT(fp)->_lock);
+}
+
+void funlockfile(FILE* fp) {
+  CHECK_FP(fp);
+  pthread_mutex_unlock(&_EXT(fp)->_lock);
 }
 
 namespace {

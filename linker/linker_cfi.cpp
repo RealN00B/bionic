@@ -50,8 +50,8 @@ class ShadowWrite {
   ShadowWrite(uint16_t* s, uint16_t* e) {
     shadow_start = reinterpret_cast<char*>(s);
     shadow_end = reinterpret_cast<char*>(e);
-    aligned_start = reinterpret_cast<char*>(PAGE_START(reinterpret_cast<uintptr_t>(shadow_start)));
-    aligned_end = reinterpret_cast<char*>(PAGE_END(reinterpret_cast<uintptr_t>(shadow_end)));
+    aligned_start = reinterpret_cast<char*>(page_start(reinterpret_cast<uintptr_t>(shadow_start)));
+    aligned_end = reinterpret_cast<char*>(page_end(reinterpret_cast<uintptr_t>(shadow_end)));
     tmp_start =
         reinterpret_cast<char*>(mmap(nullptr, aligned_end - aligned_start, PROT_READ | PROT_WRITE,
                                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
@@ -166,13 +166,13 @@ bool CFIShadowWriter::AddLibrary(soinfo* si) {
   }
   uintptr_t cfi_check = soinfo_find_cfi_check(si);
   if (cfi_check == 0) {
-    INFO("[ CFI add 0x%zx + 0x%zx %s ]", static_cast<uintptr_t>(si->base),
+    LD_DEBUG(cfi, "[ CFI add 0x%zx + 0x%zx %s ]", static_cast<uintptr_t>(si->base),
          static_cast<uintptr_t>(si->size), si->get_soname());
     AddUnchecked(si->base, si->base + si->size);
     return true;
   }
 
-  INFO("[ CFI add 0x%zx + 0x%zx %s: 0x%zx ]", static_cast<uintptr_t>(si->base),
+  LD_DEBUG(cfi, "[ CFI add 0x%zx + 0x%zx %s: 0x%zx ]", static_cast<uintptr_t>(si->base),
        static_cast<uintptr_t>(si->size), si->get_soname(), cfi_check);
 #ifdef __arm__
   // Require Thumb encoding.
@@ -204,7 +204,7 @@ bool CFIShadowWriter::NotifyLibDl(soinfo* solist, uintptr_t p) {
   shadow_start = reinterpret_cast<uintptr_t* (*)(uintptr_t)>(cfi_init)(p);
   CHECK(shadow_start != nullptr);
   CHECK(*shadow_start == p);
-  mprotect(shadow_start, PAGE_SIZE, PROT_READ);
+  mprotect(shadow_start, page_size(), PROT_READ);
   return true;
 }
 
@@ -263,8 +263,8 @@ bool CFIShadowWriter::AfterLoad(soinfo* si, soinfo* solist) {
 void CFIShadowWriter::BeforeUnload(soinfo* si) {
   if (shadow_start == nullptr) return;
   if (si->base == 0 || si->size == 0) return;
-  INFO("[ CFI remove 0x%zx + 0x%zx: %s ]", static_cast<uintptr_t>(si->base),
-       static_cast<uintptr_t>(si->size), si->get_soname());
+  LD_DEBUG(cfi, "[ CFI remove 0x%zx + 0x%zx: %s ]", static_cast<uintptr_t>(si->base),
+           static_cast<uintptr_t>(si->size), si->get_soname());
   AddInvalid(si->base, si->base + si->size);
   FixupVmaName();
 }

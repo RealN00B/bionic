@@ -495,7 +495,7 @@ no_recovery:
 	*he = NO_RECOVERY;
 	return NULL;
 success:
-	bp = (char *)ALIGN(bp);
+	bp = __builtin_align_up(bp, sizeof(uintptr_t));
 	n = (int)(ap - aliases);
 	qlen = (n + 1) * sizeof(*hent->h_aliases);
 	if ((size_t)(ep - bp) < qlen)
@@ -616,7 +616,7 @@ android_read_hostent(FILE* proxy, struct hostent* hp, char* hbuf, size_t hbuflen
 	}
 
 	// Fix alignment after variable-length data.
-	ptr = (char*)ALIGN(ptr);
+	ptr = __builtin_align_up(ptr, sizeof(uintptr_t));
 
 	int aliases_len = ((int)(aliases - aliases_ptrs) + 1) * sizeof(*hp->h_aliases);
 	if (ptr + aliases_len > hbuf_end) {
@@ -653,7 +653,7 @@ android_read_hostent(FILE* proxy, struct hostent* hp, char* hbuf, size_t hbuflen
 	}
 
 	// Fix alignment after variable-length data.
-	ptr = (char*)ALIGN(ptr);
+	ptr = __builtin_align_up(ptr, sizeof(uintptr_t));
 
 	int addrs_len = ((int)(addr_p - addr_ptrs) + 1) * sizeof(*hp->h_addr_list);
 	if (ptr + addrs_len > hbuf_end) {
@@ -1537,7 +1537,7 @@ struct hostent *
 gethostbyname(const char *name)
 {
 	struct hostent *result = NULL;
-	res_static rs = __res_get_static(); /* Use res_static to provide thread-safety. */
+	struct res_static* rs = __res_get_static();
 
 	gethostbyname_r(name, &rs->host, rs->hostbuf, sizeof(rs->hostbuf), &result, &h_errno);
 	return result;
@@ -1547,7 +1547,7 @@ struct hostent *
 gethostbyname2(const char *name, int af)
 {
 	struct hostent *result = NULL;
-	res_static rs = __res_get_static(); /* Use res_static to provide thread-safety. */
+	struct res_static* rs = __res_get_static();
 
 	gethostbyname2_r(name, af, &rs->host, rs->hostbuf, sizeof(rs->hostbuf), &result, &h_errno);
 	return result;
@@ -1583,7 +1583,7 @@ android_gethostbynamefornetcontext(const char *name, int af,
 	res_state res = __res_get_state();
 	if (res == NULL)
 		return NULL;
-	res_static rs = __res_get_static(); /* Use res_static to provide thread-safety. */
+	struct res_static* rs = __res_get_static();
 	hp = gethostbyname_internal(name, af, res, &rs->host, rs->hostbuf, sizeof(rs->hostbuf),
 	                            &h_errno, netcontext);
 	__res_put_state(res);
@@ -1615,7 +1615,7 @@ __LIBC_HIDDEN__ struct hostent*
 android_gethostbyaddrfornetcontext_proxy(const void* addr, socklen_t len, int af,
                                   const struct android_net_context *netcontext)
 {
-	res_static rs = __res_get_static(); /* Use res_static to provide thread-safety. */
+	struct res_static* rs = __res_get_static();
 	return android_gethostbyaddrfornetcontext_proxy_internal(addr, len, af, &rs->host, rs->hostbuf,
                                                     sizeof(rs->hostbuf), &h_errno, netcontext);
 }
@@ -1623,7 +1623,7 @@ android_gethostbyaddrfornetcontext_proxy(const void* addr, socklen_t len, int af
 struct hostent *
 gethostent(void)
 {
-  res_static  rs = __res_get_static();
+  struct res_static* rs = __res_get_static();
 	if (!rs->hostf) {
 	  sethostent_r(&rs->hostf);
 	  if (!rs->hostf) {
